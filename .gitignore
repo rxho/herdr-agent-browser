@@ -1,5 +1,6 @@
 node_modules/
 public/sdk.js
+public/sdk.js.LICENSE.txt
 public/viewer.js
 .DS_Store
 *.log

@@ -1,1 +1,53 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Herdr Agent Browser</title><style>:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#121622;color:#f3f5f9}body{margin:0}header{padding:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #384152}h1{font-size:16px;margin:0}#status{flex:1;color:#aab9d1}button{background:#263750;color:white;padding:8px 11px;border:1px solid #627693;border-radius:5px}#mode{font-size:12px;color:#aab9d1;padding:5px 10px}#viewer{height:calc(100dvh - 92px);min-height:350px}</style></head><body><header><h1>Agent Browser</h1><span id="status">Starting</span><button id="retry">Reconnect</button><button id="takeover">Take control</button></header><div id="mode"></div><main id="viewer"></main><script src="/sdk.js"></script><script type="module" src="/viewer.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Herdr Agent Browser</title>
+    <style>
+      :root {
+        font-family: system-ui, -apple-system, sans-serif;
+        color-scheme: dark;
+        background: #121622;
+        color: #f3f5f9;
+      }
+
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      header {
+        padding: 12px 16px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        border-bottom: 1px solid #384152;
+      }
+      h1 { margin: 0; font-size: 16px; }
+      #status { flex: 1; min-width: 12rem; color: #b3bfd3; font-size: 13px; }
+      button {
+        padding: 8px 12px;
+        border: 1px solid #627693;
+        border-radius: 6px;
+        background: #263750;
+        color: #fff;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.55; cursor: default; }
+      button[aria-pressed="true"] { border-color: #d2a152; background: #675021; }
+      #mode { padding: 6px 16px; color: #b3bfd3; font-size: 12px; }
+      #viewer { height: calc(100dvh - 104px); min-height: 320px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Agent Browser</h1>
+      <span id="status" role="status">Connecting…</span>
+      <button id="retry" type="button">Reconnect</button>
+      <button id="takeover" type="button" aria-pressed="false">Take control</button>
+    </header>
+    <div id="mode" role="status"></div>
+    <main id="viewer" aria-label="Remote browser"></main>
+    <script src="/sdk.js"></script>
+    <script type="module" src="/viewer.js"></script>
+  </body>
+</html>
