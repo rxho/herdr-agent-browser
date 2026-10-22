@@ -1,121 +1,133 @@
 # Herdr Agent Browser
 
-A browser session viewer for [Herdr](https://herdr.dev).
+A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative human-in-the-loop handoff.
 
-Herdr Agent Browser displays a Chrome/Chromium session over the Chrome DevTools Protocol (CDP), with an optional manual-input mode for tasks such as interactive sign-in. It runs independently of the Herdr TUI and works alongside [Ovis](https://github.com/devswha/ovis) or other clients.
+Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.1.1.** Browser connectivity has been exercised; multi-machine routing, exclusive human/agent control, and end-to-end mobile workflows are not yet validated. See [Release readiness](docs/release-readiness.md).
+> **Experimental — v0.2.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
-## Features
+## Quick start
 
-- Live browser viewing, navigation, tabs, mouse and keyboard input.
-- A view mode that disables user input **in this viewer** until explicitly enabled.
-- A fixed, loopback-only CDP upstream with WebSocket forwarding.
-- An independent HTTP viewer and Herdr plugin lifecycle actions.
-- A browser UI built with [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk).
-
-**Scope:** This project is a browser viewer, not a replacement for Herdr's agent sessions or a browser MCP server. It does not launch Chrome or configure coding agents.
-
-## Requirements
-
-- macOS or Linux; Node.js 20+.
-- Herdr 0.9+ for plugin installation (standalone use does not require Herdr).
-- An accessible Chrome/Chromium **browser-level CDP endpoint**.
-
-## Installation
+Requires Herdr 0.9+, Node.js 20+, and Chrome or Chromium on macOS/Linux.
 
 ```sh
 herdr plugin install rxho/herdr-agent-browser
-```
-
-Start the viewer from Herdr, or run:
-
-```sh
 herdr plugin action invoke rxho.agent-browser.start
+herdr plugin action invoke rxho.agent-browser.start-browser
 ```
 
-The default viewer URL is [http://127.0.0.1:7931/](http://127.0.0.1:7931/). Herdr registers `start`, `stop` and `status` actions.
+Open **[http://127.0.0.1:7931/](http://127.0.0.1:7931/)** on the same machine.
 
-For standalone operation:
+The `start-browser` action opens an isolated Chrome profile at the [local interaction test page](http://127.0.0.1:7931/demo). In the viewer, select **Take control** to enable input, enter text in the page, click **Update preview**, then select **Release control**.
+
+You can also launch from a checkout without Herdr:
 
 ```sh
 git clone https://github.com/rxho/herdr-agent-browser.git
 cd herdr-agent-browser
 npm ci
 npm run build
-npm start
+bash scripts/start.sh
+bash scripts/start-browser.sh
 ```
 
-## Connecting Chrome
+The Chrome profile is stored under `~/.local/share/herdr-agent-browser/chrome-profile`. It is separate from everyday browser profiles. The browser helper is optional: you can instead attach to an existing CDP-capable Chrome.
 
-Launch an **automation profile** with a debugging port and configure your agent to use this Chrome instance:
+## Browser connection
+
+The viewer connects by default to Chrome at `127.0.0.1:19331` and forwards CDP WebSocket messages through `/cdp`.
+
+When launching Chrome manually, use:
 
 ```sh
-google-chrome --remote-debugging-port=9222 \
+google-chrome --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=19331 \
   --user-data-dir=/tmp/herdr-agent-browser-profile
 ```
 
-The viewer connects to `http://127.0.0.1:9222/json/version`, discovers the browser WebSocket, and proxies it under `/cdp`. It **does not** automatically discover arbitrary agent-managed browser instances. Some automation tools use a pipe transport by default; enable a TCP debugging port for those cases.
+Configure your automation agent to drive **this same Chrome instance** through CDP. Attaching to CDP is not equivalent to launching an independent Playwright browser, and browsers started with pipe-only debugging need to be restarted with a reachable debugging port.
 
-For a Chrome running on another SSH machine, forward its **loopback-only** debugging port to the machine hosting this plugin:
+For a remote Chrome, forward its loopback CDP port over SSH:
 
 ```sh
-ssh -N -L 9222:127.0.0.1:9222 remote-host
+ssh -N -L 19331:127.0.0.1:19331 remote-host
 ```
 
-If port 9222 is unavailable locally, configure `HAB_CDP_PORT` to match the forwarded port.
+The service does not discover or manage remote machines automatically. It supports one browser-level CDP endpoint per instance.
+
+## Human handoff
+
+There are two modes.
+
+**Uncoordinated:** A human can enable input using **Take control**, but the agent may still operate the browser concurrently. Avoid simultaneous input.
+
+**Cooperative:** The agent calls the handoff CLI and *waits voluntarily* while the human interacts with the browser.
+
+```sh
+node scripts/handoff.mjs pause "Sign in to the website"
+```
+
+The browser viewer displays the pending request. The human selects **Take control**, signs in or completes a manual step, and selects **Release control**. The waiting CLI observes the release, acknowledges the request and returns to the agent.
+
+For integrations that need separate phases, the CLI also supports `request`, `wait`, `status`, `ack` and `cancel`. A control lease prevents two **viewer UIs** from acquiring the same handoff simultaneously. The lease expires after 45 seconds without a heartbeat; expiry **does not** silently resume the waiting agent.
+
+**Important limitation:** Herdr Agent Browser does not pause a coding-agent process or revoke a separately connected CDP client's capabilities. Reliable handoff requires the Agent to call and honor the cooperative protocol. A terminal tool's execution timeout may constrain how long a single `pause` call can wait.
 
 ## Ovis and other frontends
 
-Ovis and this plugin connect to different parts of the same workflow: Ovis manages Herdr sessions; this service displays a browser session. Open the viewer URL in a separate tab or in Ovis's Web Panel when origin and framing policies permit.
+Ovis continues to manage Herdr sessions, prompts and approvals. Herdr Agent Browser runs as a separate plugin service on port `7931`.
 
-The viewer provides a standalone page and small transport API, so it can also be embedded in other clients. It has no runtime dependency on Ovis.
+On the same machine, open the viewer URL in Ovis's existing Web Panel if origin and iframe policies allow, or use a separate browser tab. No Ovis APIs are required. Other clients can integrate using the viewer URL or the HTTP/WebSocket endpoints below.
 
-An HTTPS parent cannot iframe a plain HTTP viewer. For remote use, terminate HTTPS at a trusted, authenticated reverse proxy or a private-network service. Specify the exact Ovis origin using `HAB_FRAME_ANCESTORS` if it differs from the default local origins.
-
-## Manual input
-
-The page starts in **view mode**. Select **Take control** to enable mouse and keyboard interaction locally; select **Release control** to disable it again.
-
-**This is not exclusive control.** The agent and any other CDP clients can still interact concurrently. For sign-in or MFA, pause the agent before enabling manual input, then resume it afterward. Automatic agent pause/resume is not implemented.
+**On mobile or with remote Ovis:** `127.0.0.1` refers to the device you're using, not necessarily the host running Herdr. Use a trusted HTTPS transport and explicit origin configuration. A remote HTTPS Ovis page cannot embed a plain HTTP viewer because of mixed-content restrictions. Cross-host or mobile Ovis integration has not yet been verified.
 
 ## Configuration
 
-| Variable | Default | Purpose |
+| Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `HAB_PORT` | `7931` | Viewer HTTP port |
-| `HAB_BIND` | `127.0.0.1` | Viewer bind address; loopback only |
-| `HAB_CDP_HOST` | `127.0.0.1` | CDP host; loopback only |
-| `HAB_CDP_PORT` | `9222` | CDP debugging port |
-| `HAB_FRAME_ANCESTORS` | *(empty)* | Additional exact HTTP(S) origins allowed to embed the viewer (space-separated) |
+| `HAB_PORT` | `7931` | Viewer port |
+| `HAB_BIND` | `127.0.0.1` | Viewer listen address; loopback only |
+| `HAB_CDP_HOST` | `127.0.0.1` | CDP upstream; loopback only |
+| `HAB_CDP_PORT` | `19331` | Chrome debugging port |
+| `HAB_CHROME_BINARY` | Auto-detect | Chrome executable for the browser helper |
+| `HAB_CHROME_PROFILE` | `~/.local/share/herdr-agent-browser/chrome-profile` | Dedicated browser profile |
+| `HAB_FRAME_ANCESTORS` | Empty | Additional exact HTTP(S) origins allowed to embed the viewer |
+| `HAB_URL` | `http://127.0.0.1:7931` | URL used by the handoff CLI |
+| `HAB_AGENT_ID` | `shell-agent` | Calling agent label for handoff requests |
 
-Local Ovis on `http://127.0.0.1:7317` and `http://localhost:7317` is allowed to frame the viewer by default.
+### API
 
-### Endpoints
-
-| Endpoint | Purpose |
+| Endpoint | Description |
 | --- | --- |
 | `GET /api/health` | Service health |
-| `GET /api/status` | Browser CDP connectivity |
-| `WS /cdp` | Browser-level CDP WebSocket forwarding |
+| `GET /api/status` | CDP connectivity |
+| `WS /cdp` | Browser-level CDP WebSocket proxy |
+| `GET /api/handoff` | Current handoff status |
+| `POST /api/handoff/request` | Agent requests human input |
+| `POST /api/handoff/acquire` | Viewer claims human control |
+| `POST /api/handoff/heartbeat` | Viewer renews its control lease |
+| `POST /api/handoff/release` | Viewer completes the human interaction |
+| `POST /api/handoff/ack` | Agent acknowledges completion |
+| `POST /api/handoff/cancel` | Agent cancels a non-active request |
 
-These endpoints do **not** provide an authentication mechanism.
+The API currently has no built-in user authentication or browser/CDP ownership enforcement.
 
 ## Security
 
-**Do not expose the viewer or Chrome debugging port to an untrusted network.** A CDP connection grants broad access to the browser, including authenticated sessions. The service binds to loopback by default and checks browser WebSocket origins, but neither measure is a substitute for authentication.
+This service provides privileged access to Chrome sessions. **Never expose its viewer or CDP ports to the public internet.** Restrict access to trusted users over SSH forwarding, a private network, or a reverse proxy with authentication. The lease and UI watch mode do not provide a CDP security boundary.
 
-Use SSH forwarding, a trusted private overlay network, or an authenticated reverse proxy. Review [Security](SECURITY.md) before deploying outside the local machine.
+Review [SECURITY.md](SECURITY.md) before use.
 
 ## Development
 
 ```sh
 npm ci
 npm run check
-npm run test:e2e  # requires a local Chrome installation
-npm start
+npm run test:e2e
 ```
+
+The E2E suite launches two isolated Chrome processes, verifies browser frame rendering, remote mouse/keyboard interaction, Unicode text input and handoff controls, and cleans up the test profiles.
 
 ## License
 
-Licensed under the [MIT License](LICENSE). Third-party components and applicable notices are documented in [Third-party notices](THIRD_PARTY_NOTICES.md).
+This project is licensed under [MIT](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) for dependency attribution.

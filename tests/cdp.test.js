@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { config, discover, browserWebSocketUrl } from "../src/cdp.js";
 
 test("uses a fixed loopback upstream", () => {
-  assert.deepEqual(config({}), { host: "127.0.0.1", port: 9222 });
+  assert.deepEqual(config({}), { host: "127.0.0.1", port: 19331 });
   assert.throws(() => config({ HAB_CDP_HOST: "example.com" }), /loopback/);
 });
 

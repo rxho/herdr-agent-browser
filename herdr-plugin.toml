@@ -1,8 +1,8 @@
 id = "rxho.agent-browser"
 name = "Agent Browser"
-version = "0.1.1"
+version = "0.2.0"
 min_herdr_version = "0.9.0"
-description = "Browser session viewer for Chrome CDP with optional manual input"
+description = "CDP browser viewer with cooperative human handoff and local Chrome sandbox"
 platforms = ["macos", "linux"]
 
 [[build]]
@@ -23,6 +23,16 @@ command = ["bash", "scripts/start.sh"]
 id = "stop"
 title = "Stop browser viewer"
 command = ["bash", "scripts/stop.sh"]
+
+[[actions]]
+id = "start-browser"
+title = "Launch isolated Chrome browser"
+command = ["bash", "scripts/start-browser.sh"]
+
+[[actions]]
+id = "stop-browser"
+title = "Stop isolated Chrome browser"
+command = ["bash", "scripts/stop-browser.sh"]
 
 [[actions]]
 id = "status"

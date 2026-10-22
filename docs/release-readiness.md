@@ -1,30 +1,34 @@
 # Release readiness
 
-This repository is an experimental implementation, **not** a production-ready human-in-the-loop controller.
+The current implementation is an **experimental local evaluation build**.
 
 ## Verified
 
-- [x] The browser UI builds from the published `@agent-infra/browser-ui` dependency.
-- [x] Herdr installs the repository as a standard plugin.
-- [x] HTTP health and CDP connectivity checks work.
-- [x] Chrome 155 responds through the proxied CDP WebSocket.
-- [x] Unit and server tests cover configuration and origin rejection.
-- [x] Browser smoke test: the upstream SDK mounts in a separate Chrome, connects to CDP, and the local input-mode toggle works.
+- [x] Installs as a standard Herdr plugin from a GitHub repository.
+- [x] Uses the published `@agent-infra/browser-ui` bundle, preserving upstream notices.
+- [x] CDP discovery and browser-level WebSocket forwarding.
+- [x] Viewer SDK mounts and renders a remote Chrome page.
+- [x] Browser E2E: mouse click, keyboard input, Unicode Send text and viewer control/release.
+- [x] Cooperative handoff request/acquire/heartbeat/release/ack and lease expiry unit/API tests.
+- [x] Independent Chrome test profile and local fixture.
+- [x] Loopback-only listener and same-origin WebSocket checks.
 
-## Validation still required
+## Outstanding before public Alpha
 
-- [ ] Browser E2E coverage: frames, mouse, keyboard, tabs, navigation, dialogs, reconnects.
-- [ ] Sign-in and MFA handoff from both desktop and mobile.
-- [ ] An exclusive human/agent control protocol, with pause acknowledgement and resumable handoff.
-- [ ] Multiple concurrent Agent/browser sessions with durable session-to-browser mapping.
-- [ ] SSH hosts, network failure recovery, browser lifecycle and tunnel management.
-- [ ] Ovis embedding over private HTTPS, and iOS/Android keyboard and viewport behavior.
-- [ ] Reverse-proxy authentication, authorization, and threat-model review.
-- [ ] macOS/Linux packaging, startup, restart, update and uninstall regression tests.
-- [ ] Final license/notice compliance and reproducible release packaging.
+- [ ] Actual Ovis Web Panel integration on desktop and mobile, including private HTTPS.
+- [ ] Real login, 2FA, file picker and permission dialog workflows on representative sites.
+- [ ] Robust agent pause/ack/resume integration with Herdr, ZCode, Codex and Claude Code.
+- [ ] Multiple concurrent Agent/browser sessions with stable mapping.
+- [ ] SSH remote host routing, reconnects and tunnel management.
+- [ ] Mobile touch interaction, viewport layout, iOS/Android keyboard and IME validation.
+- [ ] Security review of privilege separation, authenticated reverse proxy and exposed tokens.
+- [ ] Linux/macOS lifecycle/update/uninstall CI matrix and failures.
+- [ ] Release build reproducibility, licenses and notice review.
 
-## Current limits
+## Current caveats
 
-The control button gates user input in **this page**, but does not pause the Agent or stop other CDP clients from modifying the browser. Each service instance connects to one configured Chrome browser-level endpoint. Ovis integration is currently URL-based; there is no automatic link from a Herdr pane or Agent session to its browser.
+The handoff protocol is **cooperative**. A coding agent that does not use it may still issue CDP commands during human input. The browser viewer can hold only one manual control lease per service instance, but this does not restrict external CDP clients. An expired lease does not automatically allow a waiting Agent to continue.
 
-These limits are acceptable for supervised local evaluation, but not for a claim of reliable or secure unattended handoff.
+Ovis integration is currently URL/iframe based. There is no native Ovis extension or automatic association between a Herdr Pane and a browser CDP target.
+
+Private repository access is recommended until public Alpha gates are satisfied.

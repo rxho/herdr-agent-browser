@@ -54,6 +54,7 @@ const chrome = spawn(executablePath, [
 
 let viewer;
 let browser;
+let targetBrowser;
 try {
   const discovery = await waitForChrome(cdpPort);
   viewer = createViewerServer({
@@ -63,9 +64,17 @@ try {
   await new Promise((resolve) => viewer.listen(0, "127.0.0.1", resolve));
   const port = viewer.address().port;
 
+  targetBrowser = await puppeteer.connect({ browserWSEndpoint: discovery.webSocketDebuggerUrl });
+  const targetPage = await targetBrowser.newPage();
+  await targetPage.goto(`http://127.0.0.1:${port}/demo`);
+  for (const other of await targetBrowser.pages()) {
+    if (other !== targetPage) await other.close();
+  }
+
   browser = await puppeteer.launch({
     executablePath,
     headless: true,
+    defaultViewport: { width: 1500, height: 1160 },
     args: ["--no-first-run", "--disable-gpu", "--no-default-browser-check"],
   });
   const page = await browser.newPage();
@@ -78,7 +87,7 @@ try {
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
   try {
     await page.waitForFunction(
-      () => document.getElementById("status")?.textContent === "Connected",
+      () => document.getElementById("status")?.textContent === "Browser connected",
       { timeout: 16000 },
     );
   } catch (error) {
@@ -95,14 +104,55 @@ try {
   assert.ok(state.childCount > 0, "SDK should mount an interactive browser UI");
 
   await page.click("#takeover");
-  assert.equal(await page.$eval("#viewer", (node) => node.inert), false);
+  await page.waitForFunction(() => document.getElementById("viewer").inert === false);
+
+  const targetInput = await targetPage.$eval("#name", (input) => {
+    const rect = input.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  });
+  const canvasRect = await page.evaluate(() => {
+    const canvas = document.querySelector("ai-browser-container")?.shadowRoot?.querySelector("canvas");
+    if (!canvas) throw new Error("SDK canvas not mounted");
+    const rect = canvas.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+  assert.ok(canvasRect.width > 700, "Remote canvas must be visible");
+  await page.mouse.click(canvasRect.x + targetInput.x, canvasRect.y + targetInput.y);
+  await page.keyboard.type("herdr takeover test", { delay: 10 });
+  await targetPage.waitForFunction(
+    () => document.getElementById("name").value === "herdr takeover test",
+    { timeout: 4000 },
+  );
+
+  // Verify IME/non-ASCII text via the upstream SDK keyboard API.
+  await page.click("#text-input");
+  await page.type("#text-input", " 中文ABC");
+  await page.click("#send-text");
+  await targetPage.waitForFunction(
+    () => document.getElementById("name").value === "herdr takeover test 中文ABC",
+    { timeout: 4000 },
+  );
+
+  const targetButton = await targetPage.$eval("#update", (button) => {
+    const rect = button.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  });
+  await page.mouse.click(canvasRect.x + targetButton.x, canvasRect.y + targetButton.y);
+  await targetPage.waitForFunction(
+    () => document.getElementById("output").textContent === "Received: herdr takeover test 中文ABC",
+    { timeout: 4000 },
+  );
+
   await page.click("#takeover");
-  assert.equal(await page.$eval("#viewer", (node) => node.inert), true);
+  await page.waitForFunction(() => document.getElementById("viewer").inert === true);
+  const handoff = await (await fetch(`http://127.0.0.1:${port}/api/handoff`)).json();
+  assert.equal(handoff.phase, "idle");
 
   assert.deepEqual(errors, []);
-  console.log("Browser E2E passed: SDK mounted, CDP connected, view/control toggled.");
+  console.log("Browser E2E passed: SDK frames, remote mouse/keyboard, Unicode text, handoff lease and release.");
 } finally {
   if (browser) await browser.close();
+  if (targetBrowser) await targetBrowser.disconnect();
   if (viewer) await new Promise((resolve) => viewer.close(resolve));
   chrome.kill();
   await delay(500);

@@ -2,22 +2,24 @@
 
 ## Deployment boundary
 
-Herdr Agent Browser is intended for a **trusted local operator**.
+Herdr Agent Browser targets **trusted local evaluation environments**.
 
-The viewer has no built-in authentication. The `/cdp` WebSocket endpoint forwards privileged Chrome DevTools Protocol messages and can control authenticated browser pages, inspect their contents, or access stored credentials.
+The service has no built-in authentication. The `/cdp` WebSocket proxies Chrome DevTools Protocol messages that can manipulate authenticated pages and potentially expose session credentials. Never publish its listener or Chrome's debugging port on an untrusted interface.
 
-**Never expose the viewer port or Chrome's debugging port directly to the public internet.** Keep both endpoints on loopback and use a trusted access-controlled transport (for example SSH port forwarding or an authenticated private network).
+## Control and handoff
 
-## Threat model
+- **Take control** claims a lease used by this project's viewer UI. The lease does not prevent other CDP clients, including coding agents, from issuing commands.
+- The **handoff CLI** works cooperatively: the calling agent must stop its browser operations while awaiting human input.
+- Lease expiration does not silently resume the agent. A cancelled or expired handoff requires explicit agent intervention.
+- Handoff APIs do not perform user authorization. Requests from remote websites are restricted by Origin checks, but local processes may invoke them.
+- The browser UI is best used with a dedicated automation profile, not your personal browser profile.
 
-- The **Take control** switch is a browser UI interaction mode, not an authorization or CDP write lock.
-- WebSocket Origin validation reduces cross-site browser access but cannot authenticate local programs or clients that spoof Origin headers.
-- Other CDP clients, including a coding agent, can continue issuing commands throughout manual interaction.
-- Anyone who gains access to the viewer's CDP endpoint can access the connected browser profile. Use a dedicated automation profile rather than your everyday personal Chrome profile.
-- Remote deployment requires separately securing the forwarding tunnel and any HTTP(S) reverse proxy.
+## Access and integration
+
+Keep the service bound to loopback and use an authenticated HTTPS reverse proxy, SSH forwarding, or a trusted private network for remote access. Ensure the proxy enforces access controls on HTTP **and** WebSocket endpoints. Treat Ovis iframe embedding as an integration surface, not as an authentication guarantee.
 
 ## Reporting
 
-Please avoid posting unredacted CDP endpoints, access tokens, cookies, or other credentials in public issues. Contact the repository maintainer privately through GitHub for security-sensitive findings.
+Do not attach unredacted cookies, tokens, CDP endpoints or private browsing recordings to public bug reports. Report sensitive findings to the repository maintainer privately.
 
-This experimental project has not undergone an independent security audit.
+No independent security audit has been performed.

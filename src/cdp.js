@@ -3,7 +3,7 @@ const BROWSER_WEBSOCKET_PATH = /^\/devtools\/browser\/[A-Za-z0-9_-]+$/;
 
 export function config(env = process.env) {
   const host = env.HAB_CDP_HOST || "127.0.0.1";
-  const port = Number(env.HAB_CDP_PORT || "9222");
+  const port = Number(env.HAB_CDP_PORT || "19331");
 
   if (!LOOPBACK_HOSTS.has(host)) {
     throw new Error("CDP upstream must use loopback. Forward remote browsers over SSH.");
