@@ -1,0 +1,6 @@
+node_modules/
+public/sdk.js
+public/viewer.js
+.DS_Store
+*.log
+.env
