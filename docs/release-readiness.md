@@ -11,6 +11,8 @@ The current implementation is an **experimental local evaluation build**.
 - [x] Browser E2E: mouse click, keyboard input, Unicode Send text and viewer control/release.
 - [x] Cooperative handoff request/acquire/heartbeat/release/ack and lease expiry unit/API tests.
 - [x] Independent Chrome test profile and local fixture.
+- [x] Herdr plugin entrypoint for an Ovis-compatible link pane, plus an optional native web-panel protocol adapter.
+- [ ] Native Ovis web-panel patch accepted upstream and validated against an official release.
 - [x] Loopback-only listener and same-origin WebSocket checks.
 
 ## Outstanding before public Alpha

@@ -1,0 +1,275 @@
+diff --git a/server/plugin-actions.test.ts b/server/plugin-actions.test.ts
+index 73dcff6..3953909 100644
+--- a/server/plugin-actions.test.ts
++++ b/server/plugin-actions.test.ts
+@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
+ 
+ import type { HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
+ import type { PluginCommandLog } from "./herdr/client.ts";
+-import { openedPluginPane, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
++import { openedPluginPane, pluginWebPanelUrl, pluginActionResult, pluginLogEntry, pluginPaneContext, waitForPluginAction } from "./plugin-actions.ts";
+ 
+ const pane = (fields: Partial<HerdrPane>): HerdrPane => ({ pane_id: "w2:p1", workspace_id: "w2", tab_id: "w2:t1", terminal_id: "term", focused: false, agent_status: "unknown", revision: 0, ...fields });
+ const worktree = { repo_key: "/repo/.git", repo_name: "repo", repo_root: "/repo", checkout_path: "/repo-feature", is_linked_worktree: true };
+@@ -130,3 +130,31 @@ describe("pluginLogEntry", () => {
+     await expect(pluginLogEntry("plugin-log-6", herdrLog([...newer, late]))).rejects.toMatchObject({ code: "plugin_log_not_found" });
+   });
+ });
++
++describe("pluginWebPanelUrl", () => {
++  it("accepts an explicit local web panel URL from a successful plugin action", async () => {
++    const stdout = '{"ovis_web_panel_url":"http://127.0.0.1:7931/"}\n';
++    const result = await pluginActionResult(log({ stdout }), async () => []);
++    expect(result.web_panel_url).toBe("http://127.0.0.1:7931/");
++    expect(result.opened_pane_id).toBeNull();
++  });
++
++  it("does not open remote URLs, credentials, fragments, or unsuccessful actions", async () => {
++    for (const url of [
++      "http://evil.example:7931/",
++      "http://localhost.evil.example:7931/",
++      "http://127.0.0.1:7931@evil.example/",
++      "http://user:pass@localhost:7931/",
++      "javascript:alert(1)",
++      "http://127.0.0.1:7931/#secret",
++    ]) {
++      expect(pluginWebPanelUrl(JSON.stringify({ ovis_web_panel_url: url }))).toBeNull();
++    }
++    expect((await pluginActionResult(log({
++      status: "failed", stdout: '{"ovis_web_panel_url":"http://127.0.0.1:7931/"}',
++    }), async () => [])).web_panel_url).toBeUndefined();
++    expect((await pluginActionResult(log({
++      status: "running", stdout: '{"ovis_web_panel_url":"http://127.0.0.1:7931/"}',
++    }), async () => [])).web_panel_url).toBeUndefined();
++  });
++});
+diff --git a/server/plugin-actions.ts b/server/plugin-actions.ts
+index a16281f..40f3ce0 100644
+--- a/server/plugin-actions.ts
++++ b/server/plugin-actions.ts
+@@ -74,6 +74,25 @@ export function openedPluginPane(stdout: string | null | undefined): string | nu
+   return opened;
+ }
+ 
++/** A plugin may return a same-machine browser viewer URL as one standalone JSON line.
++ * Restrict this channel to loopback HTTP(S) addresses; the client applies its own framing policy.
++ */
++export function pluginWebPanelUrl(stdout: string | null | undefined): string | null {
++  for (const line of (stdout ?? "").split("\n").reverse()) {
++    let value: unknown;
++    try { value = JSON.parse(line); } catch { continue; }
++    const candidate = (value as { ovis_web_panel_url?: unknown } | null)?.ovis_web_panel_url;
++    if (typeof candidate !== "string" || candidate.length > 2048) continue;
++    try {
++      const url = new URL(candidate);
++      if (!["http:", "https:"].includes(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) continue;
++      if (!url.port || url.username || url.password || url.hash) continue;
++      return url.href;
++    } catch { /* malformed URL */ }
++  }
++  return null;
++}
++
+ /** The least the pane lookup after a run gets when the run ended right at the wait's deadline. */
+ const PANE_LOOKUP_FLOOR_MS = 1_000;
+ 
+@@ -118,6 +137,8 @@ export function pluginActionResult(log: PluginCommandLog, paneIds: () => Promise
+     exit_code: log.exit_code ?? null,
+     output: said === "" ? null : said.slice(-PLUGIN_OUTPUT_CHARS),
+     opened_pane_id: null,
++    ...(log.status === "succeeded" && pluginWebPanelUrl(log.stdout) !== null
++      ? { web_panel_url: pluginWebPanelUrl(log.stdout)! } : {}),
+   };
+   const named = log.status === "succeeded" ? openedPluginPane(log.stdout) : null;
+   if (named === null) return Promise.resolve(result);
+diff --git a/shared/plugins.ts b/shared/plugins.ts
+index b2a2ae9..fc9e8f0 100644
+--- a/shared/plugins.ts
++++ b/shared/plugins.ts
+@@ -49,4 +49,6 @@ export interface PluginActionResult {
+    * the command ran, which nothing ties to it.
+    */
+   opened_pane_id: string | null;
++  /** An optional local web-panel URL explicitly emitted by a successful plugin action. */
++  web_panel_url?: string;
+ }
+diff --git a/src/App.tsx b/src/App.tsx
+index 59c3b2c..883e7eb 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,8 +1,8 @@
+ import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+-import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
++import { Bell, Ellipsis, FolderOpen, Globe, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
+ 
+ import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
+-import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
++import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, fetchPluginActions, runPluginAction, fetchPluginActionStatus, pairDevice, routeMissing, sendTestPush, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
+ import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
+ import { deviceLabel, takePairCode } from "./lib/phone.ts";
+ import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
+@@ -30,6 +30,7 @@ import { peekFor, type PeekRequest, type TerminalPeek } from "./lib/terminalPeek
+ import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
+ import { copyText } from "./lib/clipboard.ts";
+ import { CommandPalette } from "./components/CommandPalette.tsx";
++import { runPluginActionToEnd } from "./lib/pluginRun.ts";
+ import { paletteOpenQuery } from "./lib/paletteSeed.ts";
+ import { MachineContext } from "./lib/machineContext.tsx";
+ import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
+@@ -476,6 +477,58 @@ export function App() {
+     setWebPage(url);
+     return true;
+   }, [settings.webLinks, viewing, fileDocked, closeFile]);
++  // A plugin action explicitly requested this local web viewer. Unlike regular links, this
++  // always prefers the Web Panel; mobile uses the full-screen panel below.
++  const openPluginWebPanel = useCallback((uri: string): boolean => {
++    if (selectedMachineId !== LOCAL_MACHINE) return false;
++    const url = panelUrl(uri, window.location);
++    if (url === null) return false;
++    if (viewing !== null && fileDocked) closeFile();
++    setWebPage(url);
++    return true;
++  }, [selectedMachineId, viewing, fileDocked, closeFile]);
++
++  const [browserAction, setBrowserAction] = useState<{ pluginId: string; actionId: string; label: string } | null>(null);
++  const [browserActionError, setBrowserActionError] = useState<string | null>(null);
++  const [browserActionRunning, setBrowserActionRunning] = useState(false);
++
++  useEffect(() => {
++    if (selectedMachineId !== LOCAL_MACHINE) { setBrowserAction(null); return; }
++    let active = true;
++    const refresh = async () => {
++      try {
++        const installed = await fetchPluginActions(LOCAL_MACHINE);
++        if (!active) return;
++        const item = installed.filter((plugin) => plugin.enabled)
++          .flatMap((plugin) => plugin.actions.filter((action) => action.action_id === "open-web-panel")
++            .map((action) => ({ pluginId: plugin.plugin_id, actionId: action.action_id, label: plugin.name })))[0] ?? null;
++        setBrowserAction(item);
++      } catch { if (active) setBrowserAction(null); }
++    };
++    void refresh();
++    const poll = window.setInterval(() => void refresh(), 30_000);
++    return () => { active = false; window.clearInterval(poll); };
++  }, [selectedMachineId]);
++
++  const openInstalledBrowser = async () => {
++    if (!browserAction || browserActionRunning) return;
++    setBrowserActionRunning(true);
++    setBrowserActionError(null);
++    try {
++      const result = await runPluginActionToEnd({
++        runPluginAction: (request) => runPluginAction(request, LOCAL_MACHINE),
++        fetchPluginActionStatus: (pluginId, logId) => fetchPluginActionStatus(pluginId, logId, LOCAL_MACHINE),
++      }, { plugin_id: browserAction.pluginId, action_id: browserAction.actionId }, () => true);
++      if (!result || result.status !== "succeeded" || !result.web_panel_url || !openPluginWebPanel(result.web_panel_url)) {
++        throw new Error("The browser panel is unavailable from this address. Check the plugin and HTTPS access.");
++      }
++    } catch (error) {
++      setBrowserActionError(error instanceof Error ? error.message : String(error));
++    } finally {
++      setBrowserActionRunning(false);
++    }
++  };
++
+   // the panel is no dialog, so no trap gives the focus back when it closes: what opened the file
+   // (a link in the chat, a row of Files) gets it, as it does from the popup
+   useFocusReturn(viewing !== null && fileDocked);
+@@ -1603,6 +1656,7 @@ export function App() {
+   const moreItems: RowMenuItem[] = [
+     // first at every width: a phone's header has no palette button, and a touch screen no shortcut
+     { id: "palette", label: t("Search panes and actions"), icon: Search, ...(paletteKeys ? { hint: paletteKeys } : {}), run: () => openPalette() },
++    ...(browserAction ? [{ id: "plugin-browser", label: browserAction.label, icon: Globe, run: () => void openInstalledBrowser() }] : []),
+     ...(selectedPane && !selectedPane.restore_error ? [{ id: "find", label: t("Find in terminal"), icon: Search, run: actions.openFind }] : []),
+     // from 769px Files has its own button beside the lens switch; a phone keeps it here
+     ...(selectedPane && !wideScreen ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
+@@ -1790,6 +1844,7 @@ export function App() {
+         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
+         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
+         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
++        {browserActionError && <p className="pane-notice" role="alert">{browserActionError}</p>}
+         {shownHealth?.lan_exposure && <LanExposureNotice host={shownHealth.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}
+         {/* the pane's tab, or two tabs side by side (lib/split.ts): a tab dragged down out of its strip,
+             or a sidebar row dragged over this area, opens its pane in the half it is dropped on */}
+@@ -1946,6 +2001,11 @@ export function App() {
+         </MachineContext.Provider>}
+         {webPage !== null && filePanelAvailable && !(viewing !== null && fileDocked) &&
+           <WebPanel key={webPage} url={webPage} onClose={() => setWebPage(null)} panelStart={<FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} />} />}
++        {webPage !== null && !filePanelAvailable && (
++          <div className="plugin-web-panel-mobile">
++            <WebPanel key={webPage} url={webPage} onClose={() => setWebPage(null)} />
++          </div>
++        )}
+       </div>
+ 
+       <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
+@@ -2014,7 +2074,7 @@ export function App() {
+       </MachineContext.Provider>}
+       <CommandPalette key={selectedMachineId} machines={machines} onSelect={selectTarget} open={paletteOpen} initialQuery={paletteQuery} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId}
+         // a peek shows the terminal: its toggle says Switch to chat, which ends the peek
+-        view={terminalPeek !== null ? "terminal" : view} actions={actions} />
++        view={terminalPeek !== null ? "terminal" : view} actions={actions} onOpenWebPanel={openPluginWebPanel} />
+     </div></MachineContext.Provider></MachineSessionsProvider>
+   );
+ }
+diff --git a/src/components/CommandPalette.tsx b/src/components/CommandPalette.tsx
+index 6df016c..4afeeef 100644
+--- a/src/components/CommandPalette.tsx
++++ b/src/components/CommandPalette.tsx
+@@ -50,6 +50,8 @@ interface CommandPaletteProps {
+   selectedPaneId: string | null;
+   view: PaneView;
+   actions: AppActions;
++  /** Opens a plugin-provided local web viewer in the embedded panel, when supported. */
++  onOpenWebPanel?: (url: string) => boolean;
+ }
+ 
+ interface PaletteAction {
+@@ -146,7 +148,7 @@ function ShortcutHint({ shortcutId }: { shortcutId?: ShortcutId }) {
+   return <span className="palette-shortcut" aria-label={keys.join(" + ")}>{keys.map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span>;
+ }
+ 
+-export function CommandPalette({ open, initialQuery = "", onClose, machines, onSelect, snapshot, online, selectedPaneId, view, actions }: CommandPaletteProps) {
++export function CommandPalette({ open, initialQuery = "", onClose, machines, onSelect, snapshot, online, selectedPaneId, view, actions, onOpenWebPanel }: CommandPaletteProps) {
+   const t = useT();
+   const machineId = useMachineId();
+   const api = useMachineApi();
+@@ -479,6 +481,14 @@ export function CommandPalette({ open, initialQuery = "", onClose, machines, onS
+           : t("{action} failed (exit code {code})", { action: action.title, code: result.exit_code ?? "?" }));
+         return;
+       }
++      if (result.web_panel_url) {
++        if (onOpenWebPanel?.(result.web_panel_url)) {
++          onClose();
++          return;
++        }
++        setPluginError(t("This browser viewer cannot be embedded from the current device or address."));
++        return;
++      }
+       if (result.opened_pane_id !== null) {
+         // the pane may be newer than the snapshot on screen
+         actions.refresh();
+diff --git a/src/components/FileViewer.css b/src/components/FileViewer.css
+index f5ca63f..225f8ab 100644
+--- a/src/components/FileViewer.css
++++ b/src/components/FileViewer.css
+@@ -600,3 +600,19 @@
+   width: min(100%, 980px);
+   align-self: center;
+ }
++
++/* Plugin-provided web viewers take the full screen on narrow/touch layouts.
++ * Desktop viewers keep using Ovis's existing resizable file-panel column. */
++.plugin-web-panel-mobile {
++  position: fixed;
++  inset: 0;
++  z-index: var(--z-modal);
++  display: flex;
++  min-height: 0;
++  background: var(--bg);
++}
++.plugin-web-panel-mobile > .file-panel {
++  width: 100%;
++  flex: 1 1 auto;
++  border-left: 0;
++}

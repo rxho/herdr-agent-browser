@@ -4,7 +4,7 @@ A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative
 
 Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.2.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
+> **Experimental — v0.2.1.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
 ## Quick start
 
@@ -76,6 +76,13 @@ For integrations that need separate phases, the CLI also supports `request`, `wa
 ## Ovis and other frontends
 
 Ovis continues to manage Herdr sessions, prompts and approvals. Herdr Agent Browser runs as a separate plugin service on port `7931`.
+
+The plugin supplies two integration actions:
+
+- **Open Agent Browser link pane:** supported by existing Ovis releases; opens a Herdr terminal Pane containing an OSC 8 hyperlink. Clicking it opens the browser in Ovis's Web Panel when local framing is permitted and Web Links is configured for Panel.
+- **Open Agent Browser in Ovis:** emits a structured web-panel URL understood by the optional [Ovis integration patch](integrations/ovis/README.md). With that patch, Ovis automatically discovers the plugin and displays a browser entry in its menu; clicking it opens the built-in Web Panel.
+
+**The Ovis extension has not been merged upstream.** Installing this plugin does not silently patch or replace Ovis. The unmodified client retains the link-pane fallback.
 
 On the same machine, open the viewer URL in Ovis's existing Web Panel if origin and iframe policies allow, or use a separate browser tab. No Ovis APIs are required. Other clients can integrate using the viewer URL or the HTTP/WebSocket endpoints below.
 

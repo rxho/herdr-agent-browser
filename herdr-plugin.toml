@@ -1,8 +1,8 @@
 id = "rxho.agent-browser"
 name = "Agent Browser"
-version = "0.2.0"
+version = "0.2.1"
 min_herdr_version = "0.9.0"
-description = "CDP browser viewer with cooperative human handoff and local Chrome sandbox"
+description = "CDP browser viewer with cooperative human handoff and optional Ovis web-panel integration"
 platforms = ["macos", "linux"]
 
 [[build]]
@@ -13,6 +13,26 @@ command = ["npm", "run", "build"]
 
 [[startup]]
 command = ["bash", "scripts/start.sh"]
+
+[[actions]]
+id = "open-web-panel"
+title = "Open Agent Browser in Ovis"
+description = "Open the browser viewer using Ovis's web-panel protocol (on supported Ovis builds)"
+contexts = ["global", "workspace", "pane"]
+command = ["node", "scripts/open-panel.mjs"]
+
+[[actions]]
+id = "open-browser-pane"
+title = "Open Agent Browser link pane"
+description = "Opens a Herdr pane with a clickable browser viewer link; compatible with current Ovis releases"
+contexts = ["global", "workspace", "pane"]
+command = ["bash", "scripts/open-browser-pane.sh"]
+
+[[panes]]
+id = "browser"
+title = "Agent Browser"
+placement = "split"
+command = ["node", "scripts/browser-pane.mjs"]
 
 [[actions]]
 id = "start"
