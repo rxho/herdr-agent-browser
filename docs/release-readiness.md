@@ -14,6 +14,10 @@ The current implementation is an **experimental local evaluation build**.
 - [x] Herdr plugin entrypoint for an Ovis-compatible link pane, plus an optional native web-panel protocol adapter.
 - [ ] Native Ovis web-panel patch accepted upstream and validated against an official release.
 - [x] Loopback-only listener and same-origin WebSocket checks.
+- [x] Node.js runtime resolution tested with a daemon-like restricted PATH on macOS and Ubuntu 24.
+- [x] Linux headless Chrome using system Chrome 146: CDP discovery, viewer status and end-to-end mouse/keyboard/Unicode/handoff.
+- [x] Fixed Chrome for Testing 155 download/install on Ubuntu 24; subsequent install reuses cache.
+- [ ] Managed Chrome 155 headless startup on Ubuntu 24 requires an AppArmor user namespace policy; this host blocked it with "No usable sandbox". No sandbox downgrade is applied.
 
 ## Outstanding before public Alpha
 

@@ -11,4 +11,13 @@ This project depends on external open-source software. Its source license applie
 
 The build uses the upstream distribution bundle. It copies the upstream bundle's generated notices into `public/sdk.js.LICENSE.txt` alongside `public/sdk.js`. That notice file also identifies separately licensed transitive code included in the bundle.
 
-For dependency upgrades, review the upstream distribution and its notices before publication.
+## Browser binary management
+
+- Package: [`@puppeteer/browsers`](https://www.npmjs.com/package/@puppeteer/browsers)
+- Source: [`puppeteer/puppeteer`](https://github.com/puppeteer/puppeteer)
+- Version: `2.10.13` (locked in `package-lock.json`)
+- License: Apache License, Version 2.0
+
+The optional browser installation action fetches Google's separately distributed Chrome for Testing binaries. A downloaded browser is not part of this repository's source tree or npm dependency bundle.
+
+For dependency upgrades, review the upstream distributions and their notices before publication.

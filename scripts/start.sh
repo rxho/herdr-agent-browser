@@ -30,7 +30,7 @@ fi
 
 (
   cd "$root"
-  nohup node src/server.js >>"$state_dir/server.log" 2>&1 </dev/null &
+  nohup bash scripts/with-node.sh src/server.js >>"$state_dir/server.log" 2>&1 </dev/null &
   echo "$!" >"$state_dir/server.pid"
 )
 

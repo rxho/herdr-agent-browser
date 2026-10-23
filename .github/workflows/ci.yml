@@ -11,3 +11,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Linux browser E2E (installed Chrome)
+        run: |
+          CHROME_BIN="$(command -v google-chrome || command -v chromium)"
+          CHROME_BIN="$CHROME_BIN" npm run test:e2e

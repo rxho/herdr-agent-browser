@@ -1,4 +1,5 @@
 node_modules/
+build/runtime-node.path
 public/sdk.js
 public/sdk.js.LICENSE.txt
 public/viewer.js

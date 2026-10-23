@@ -9,7 +9,7 @@ if [[ ! -f "$pid_file" ]]; then
 fi
 
 pid="$(cat "$pid_file")"
-if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o command= 2>/dev/null | grep -Eq '(Google Chrome|chromium).*remote-debugging-port'; then
+if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o command= 2>/dev/null | grep -Eq '(Google Chrome|[Cc]hromium|chrome).*remote-debugging-port'; then
   kill "$pid"
   echo "Stopped plugin-managed Chrome (PID $pid)."
 else

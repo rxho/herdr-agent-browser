@@ -4,11 +4,11 @@ A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative
 
 Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.2.1.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
+> **Experimental — v0.2.2.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
 ## Quick start
 
-Requires Herdr 0.9+, Node.js 20+, and Chrome or Chromium on macOS/Linux.
+Requires Herdr 0.9+, Node.js 20+ for the plugin, and a Chrome/Chromium browser on macOS or Linux. The optional managed browser installer can download a pinned Chrome for Testing release.
 
 ```sh
 herdr plugin install rxho/herdr-agent-browser
@@ -32,6 +32,26 @@ bash scripts/start-browser.sh
 ```
 
 The Chrome profile is stored under `~/.local/share/herdr-agent-browser/chrome-profile`. It is separate from everyday browser profiles. The browser helper is optional: you can instead attach to an existing CDP-capable Chrome.
+
+### Node.js when Herdr has a restricted PATH
+
+Herdr daemons frequently start outside the interactive shell and may not inherit the PATH set by nvm, Linuxbrew or Homebrew. The build records the absolute Node.js executable used by `npm run build`; at runtime every Node-powered plugin Action/Pane resolves an executable through `scripts/with-node.sh`. It checks `HAB_NODE_BINARY`, the recorded executable, PATH and standard installation locations. Paths are validated at invocation time (Node.js 20+).
+
+If the service cannot locate Node, its error includes the daemon's effective `PATH` and `HOME`. To override discovery, set `HAB_NODE_BINARY=/absolute/path/to/node` in the plugin's runtime environment. Run a representative Action rather than trusting your login shell's `which node`.
+
+### Headless Linux and browser installation
+
+On Linux, `HAB_HEADLESS=auto` launches Chrome with `--headless=new` when both `DISPLAY` and `WAYLAND_DISPLAY` are absent. Use `HAB_HEADLESS=true` to force headless, or `HAB_HEADLESS=false` to require a graphical display.
+
+To install a **fixed Chrome for Testing release** under the plugin's own cache (without overwriting system Chrome), run:
+
+```sh
+herdr plugin action invoke rxho.agent-browser.install-browser
+```
+
+The installer uses `@puppeteer/browsers`, pinned to `155.0.8059.79` by default, and reuses an existing installation on subsequent invocations. The downloaded executable is discovered automatically, along with system Chrome and supported Puppeteer/Playwright caches. An explicitly set `HAB_CHROME_BINARY` takes priority. On Linux hosts with AppArmor's restricted unprivileged user namespaces, the launcher prefers an available distro-profiled system Chrome over downloaded Chrome for Testing; use `HAB_CHROME_BINARY` to explicitly select a permitted alternate executable.
+
+**Linux requirements:** browser archives do not include all OS libraries. Install the distribution's required Chrome libraries separately. Ubuntu 23.10+ may restrict downloaded Chrome for Testing binaries from creating sandbox user namespaces through AppArmor. If Chrome reports `No usable sandbox`, prefer a distro-packaged Chrome with an appropriate AppArmor profile (`HAB_CHROME_BINARY=/usr/bin/google-chrome`) or have an administrator create a restrictive AppArmor profile granting the browser userns permission. The plugin does not automatically append `--no-sandbox` or weaken system-wide sandbox policy.
 
 ## Browser connection
 
@@ -96,7 +116,11 @@ On the same machine, open the viewer URL in Ovis's existing Web Panel if origin 
 | `HAB_BIND` | `127.0.0.1` | Viewer listen address; loopback only |
 | `HAB_CDP_HOST` | `127.0.0.1` | CDP upstream; loopback only |
 | `HAB_CDP_PORT` | `19331` | Chrome debugging port |
-| `HAB_CHROME_BINARY` | Auto-detect | Chrome executable for the browser helper |
+| `HAB_CHROME_BINARY` | Auto-detect | Explicit browser executable path |
+| `HAB_NODE_BINARY` | Auto-detect | Explicit Node.js executable for Herdr daemon launches |
+| `HAB_HEADLESS` | `auto` | `auto`, `true`, or `false`; auto detects headless Linux |
+| `HAB_BROWSER_VERSION` | `155.0.8059.79` | Pinned managed Chrome for Testing version |
+| `HAB_BROWSER_CACHE` | `~/.local/share/herdr-agent-browser/browsers` | Managed Chrome cache |
 | `HAB_CHROME_PROFILE` | `~/.local/share/herdr-agent-browser/chrome-profile` | Dedicated browser profile |
 | `HAB_FRAME_ANCESTORS` | Empty | Additional exact HTTP(S) origins allowed to embed the viewer |
 | `HAB_URL` | `http://127.0.0.1:7931` | URL used by the handoff CLI |
