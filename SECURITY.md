@@ -1,5 +1,11 @@
 # Security
 
+## Agent MCP integration
+
+Plugin installation alone does not grant Agent clients browser access. Configuring each Agent requires explicit user approval through the setup Pane or a matching CLI preview token. Integration modifies only two named MCP entries in the chosen Agent config; it never changes global instruction files or permission policies.
+
+MCP browser tools provide privileged access to the same authenticated Chrome profile and operate with the privileges of the running Agent. Revoke the integration if an Agent should no longer have that capability. The handoff MCP guides cooperative pauses, but it cannot revoke unrelated clients' CDP permissions. Never mistake installation or handoff completion for authorization to perform sensitive actions.
+
 ## Deployment boundary
 
 Herdr Agent Browser targets **trusted local evaluation environments**.

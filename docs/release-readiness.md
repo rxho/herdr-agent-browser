@@ -17,6 +17,10 @@ The current implementation is an **experimental local evaluation build**.
 - [x] v0.3.0: root and /browser/ routing, relative viewer assets and local handoff-client URLs.
 - [x] v0.3.0: HTTP+WebSocket auth behind a real HTTPS Caddy reverse proxy, negative Origin tests, mouse/keyboard/Unicode/handoff E2E.
 - [x] v0.3.0: public Ovis action URL with a separate internal handoff URL; optional Ovis integration patch tested and built.
+- [x] v0.4.0: Agent detection and explicit per-Agent MCP configuration approval with config-drift verification and safe revocation.
+- [x] v0.4.0: Claude Code, Codex and OpenCode adapters; ZCode deliberately detection-only.
+- [x] v0.4.0: native agent-browser 0.39+ MCP tool discovery and standalone handoff MCP test.
+- [ ] Hard enforced Agent pause/CDP ownership and support for already running Agents without session restart remain future work.
 - [x] Patched local Ovis plugin discovery and cross-port Web Panel E2E.
 - [ ] Same-origin public Ovis navigation requires production gateway authentication and live remote/mobile verification.
 - [ ] Shared production Ovis gateway login, mobile network, multi-user authorization and deployment on an external host remain unverified.

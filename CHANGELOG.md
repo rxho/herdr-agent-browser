@@ -2,6 +2,23 @@
 
 All notable changes are recorded here. This project remains experimental.
 
+## [0.4.0] - 2026-10-24
+
+### Added
+- Opt-in Agent MCP integration for Claude Code, Codex and OpenCode; ZCode is detection-only until its schema is verified.
+- Native `agent-browser` 0.39+ MCP integration using the existing Chrome CDP port.
+- Independent MCP stdio server for cooperative human handoff, including bounded polling.
+- Read-only Agent discovery, configuration previews, per-Agent approval tokens, and safe revocation of plugin-owned MCP entries.
+- Interactive Herdr setup Pane and read-only integration status Action.
+- Config-drift detection and preservation of unrelated MCP servers and configuration fields.
+- Standard MCP transport and consent lifecycle tests.
+
+### Security
+- Installing or updating the Herdr plugin does not modify any Agent MCP configuration.
+- Applying each Agent integration requires an explicit, preview-bound confirmation.
+- No global Agent instructions, permissions, or user-created MCP entries are modified.
+- Human handoff remains cooperative; there is no enforced CDP ownership lock.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

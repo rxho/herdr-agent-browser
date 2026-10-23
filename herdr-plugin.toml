@@ -1,6 +1,6 @@
 id = "rxho.agent-browser"
 name = "Agent Browser"
-version = "0.3.0"
+version = "0.4.0"
 min_herdr_version = "0.9.0"
 description = "CDP browser viewer with cooperative human handoff and optional Ovis web-panel integration"
 platforms = ["macos", "linux"]
@@ -13,6 +13,26 @@ command = ["npm", "run", "build"]
 
 [[startup]]
 command = ["bash", "scripts/start.sh"]
+
+[[actions]]
+id = "agent-integration-status"
+title = "Detect Agent MCP integrations"
+description = "Read-only discovery of Agent clients and their current managed MCP status"
+contexts = ["global", "workspace", "pane"]
+command = ["bash", "scripts/with-node.sh", "scripts/agent-integration.mjs", "status"]
+
+[[actions]]
+id = "configure-agents"
+title = "Configure Agent MCP integrations"
+description = "Open an interactive consent pane to preview, approve or revoke Agent MCP entries"
+contexts = ["global", "workspace", "pane"]
+command = ["bash", "scripts/open-agent-setup.sh"]
+
+[[panes]]
+id = "setup"
+title = "Agent MCP Setup"
+placement = "split"
+command = ["bash", "scripts/with-node.sh", "scripts/setup-pane.mjs"]
 
 [[actions]]
 id = "open-web-panel"

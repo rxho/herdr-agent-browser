@@ -4,7 +4,7 @@ A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative
 
 Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.3.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
+> **Experimental — v0.4.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
 ## Quick start
 
@@ -52,6 +52,48 @@ herdr plugin action invoke rxho.agent-browser.install-browser
 The installer uses `@puppeteer/browsers`, pinned to `155.0.8059.79` by default, and reuses an existing installation on subsequent invocations. The downloaded executable is discovered automatically, along with system Chrome and supported Puppeteer/Playwright caches. An explicitly set `HAB_CHROME_BINARY` takes priority. On Linux hosts with AppArmor's restricted unprivileged user namespaces, the launcher prefers an available distro-profiled system Chrome over downloaded Chrome for Testing; use `HAB_CHROME_BINARY` to explicitly select a permitted alternate executable.
 
 **Linux requirements:** browser archives do not include all OS libraries. Install the distribution's required Chrome libraries separately. Ubuntu 23.10+ may restrict downloaded Chrome for Testing binaries from creating sandbox user namespaces through AppArmor. If Chrome reports `No usable sandbox`, prefer a distro-packaged Chrome with an appropriate AppArmor profile (`HAB_CHROME_BINARY=/usr/bin/google-chrome`) or have an administrator create a restrictive AppArmor profile granting the browser userns permission. The plugin does not automatically append `--no-sandbox` or weaken system-wide sandbox policy.
+
+## Agent MCP integration (explicit consent)
+
+Browser control and human handoff are exposed as **two MCP servers**. An Agent can use the same Chrome CDP browser that the Viewer displays, and can request human assistance for login, MFA or captchas.
+
+**Installing the Herdr plugin never modifies any Agent MCP configuration.** Detecting installed Agents is read-only. Each Agent must be explicitly selected and individually authorized.
+
+Supported configuration adapters:
+
+- **Claude Code:** user-level `~/.claude.json` (`mcpServers`)
+- **Codex:** user-level `~/.codex/config.toml` (`mcp_servers`)
+- **OpenCode:** user-level `~/.config/opencode/opencode.json[c]` (`mcp`)
+- **ZCode:** detection only; no automatic writes until its MCP configuration format has been verified
+
+Install [agent-browser 0.39+](https://github.com/vercel-labs/agent-browser) on the **same host as the Agent**. It supplies native `agent-browser mcp --tools core`. The Herdr plugin supplies a separate cooperative handoff MCP server. Do not install the browser CLI in a remote Agent environment expecting it to connect to a local laptop CDP port without an SSH tunnel.
+
+For the interactive setup, use the Herdr plugin Action **Configure Agent MCP integrations** to open a terminal Pane with selectable Agents and a required typed confirmation. Or use the standalone CLI:
+
+```sh
+# No writes: detects installed Agents and reports managed integrations
+node scripts/agent-integration.mjs status
+
+# No writes: preview exact MCP entries, destination file and approval token
+node scripts/agent-integration.mjs preview --agent claude
+
+# Only after inspecting the preview and explicitly approving:
+node scripts/agent-integration.mjs apply --agent claude --token <token-from-preview>
+
+# To revoke only the plugin-owned entries:
+node scripts/agent-integration.mjs preview --agent claude --revoke
+node scripts/agent-integration.mjs revoke --agent claude --token <revoke-token>
+```
+
+Repeat separately for `codex` or `opencode` if desired. An approval token is bound to the current config file contents; if another tool changes the file after preview, the operation is refused. Preexisting MCP servers are preserved. The plugin keeps its ownership record in `~/.config/herdr-agent-browser/integrations.json` and refuses to delete entries it did not create or that were subsequently modified.
+
+No `AGENTS.md`, `CLAUDE.md`, project instructions, Agent permission settings, or other MCP servers are rewritten. **Restart the Agent process or reload MCP configuration** to activate the new tools.
+
+The MCP servers provide:
+- Native browser commands, including navigation, snapshots, mouse, keyboard and screenshots, pointed at `AGENT_BROWSER_CDP=${HAB_CDP_PORT:-19331}`.
+- Handoff tools `handoff_status`, `handoff_request`, `handoff_wait`, `handoff_cancel`. The handoff MCP includes instructions to stop browser operations until released. Waiting uses bounded polling to avoid long-running RPC timeouts.
+
+**Security and correctness limitation:** This is a *cooperative* handoff protocol, not an enforced exclusive CDP lock. A coding Agent can ignore MCP instructions or interact through other CDP clients. Registering MCP tools does not grant permission to submit sensitive forms or conduct unrelated browser activity; the Agent's own permissions still apply. Existing Agent sessions may require restart.
 
 ## Browser connection
 
@@ -138,6 +180,7 @@ See **[Authenticated reverse-proxy deployment](docs/reverse-proxy.md)** for an e
 | `HAB_CDP_PORT` | `19331` | Chrome debugging port |
 | `HAB_CHROME_BINARY` | Auto-detect | Explicit browser executable path |
 | `HAB_NODE_BINARY` | Auto-detect | Explicit Node.js executable for Herdr daemon launches |
+| `HAB_AGENT_BROWSER_BINARY` | Auto-detect | Optional absolute `agent-browser` 0.39+ executable used for MCP configuration |
 | `HAB_HEADLESS` | `auto` | `auto`, `true`, or `false`; auto detects headless Linux |
 | `HAB_BROWSER_VERSION` | `155.0.8059.79` | Pinned managed Chrome for Testing version |
 | `HAB_BROWSER_CACHE` | `~/.local/share/herdr-agent-browser/browsers` | Managed Chrome cache |
