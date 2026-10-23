@@ -14,6 +14,12 @@ The current implementation is an **experimental local evaluation build**.
 - [x] Herdr plugin entrypoint for an Ovis-compatible link pane, plus an optional native web-panel protocol adapter.
 - [ ] Native Ovis web-panel patch accepted upstream and validated against an official release.
 - [x] Loopback-only listener and same-origin WebSocket checks.
+- [x] v0.3.0: root and /browser/ routing, relative viewer assets and local handoff-client URLs.
+- [x] v0.3.0: HTTP+WebSocket auth behind a real HTTPS Caddy reverse proxy, negative Origin tests, mouse/keyboard/Unicode/handoff E2E.
+- [x] v0.3.0: public Ovis action URL with a separate internal handoff URL; optional Ovis integration patch tested and built.
+- [x] Patched local Ovis plugin discovery and cross-port Web Panel E2E.
+- [ ] Same-origin public Ovis navigation requires production gateway authentication and live remote/mobile verification.
+- [ ] Shared production Ovis gateway login, mobile network, multi-user authorization and deployment on an external host remain unverified.
 - [x] Node.js runtime resolution tested with a daemon-like restricted PATH on macOS and Ubuntu 24.
 - [x] Linux headless Chrome using system Chrome 146: CDP discovery, viewer status and end-to-end mouse/keyboard/Unicode/handoff.
 - [x] Fixed Chrome for Testing 155 download/install on Ubuntu 24; subsequent install reuses cache.

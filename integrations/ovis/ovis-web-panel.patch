@@ -1,5 +1,5 @@
 diff --git a/server/plugin-actions.test.ts b/server/plugin-actions.test.ts
-index 73dcff6..3953909 100644
+index 73dcff6..b8c25db 100644
 --- a/server/plugin-actions.test.ts
 +++ b/server/plugin-actions.test.ts
 @@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
@@ -11,7 +11,7 @@ index 73dcff6..3953909 100644
  
  const pane = (fields: Partial<HerdrPane>): HerdrPane => ({ pane_id: "w2:p1", workspace_id: "w2", tab_id: "w2:t1", terminal_id: "term", focused: false, agent_status: "unknown", revision: 0, ...fields });
  const worktree = { repo_key: "/repo/.git", repo_name: "repo", repo_root: "/repo", checkout_path: "/repo-feature", is_linked_worktree: true };
-@@ -130,3 +130,31 @@ describe("pluginLogEntry", () => {
+@@ -130,3 +130,38 @@ describe("pluginLogEntry", () => {
      await expect(pluginLogEntry("plugin-log-6", herdrLog([...newer, late]))).rejects.toMatchObject({ code: "plugin_log_not_found" });
    });
  });
@@ -24,7 +24,12 @@ index 73dcff6..3953909 100644
 +    expect(result.opened_pane_id).toBeNull();
 +  });
 +
-+  it("does not open remote URLs, credentials, fragments, or unsuccessful actions", async () => {
++  it("accepts an authenticated external HTTPS viewer URL", () => {
++    expect(pluginWebPanelUrl('{"ovis_web_panel_url":"https://host.example/browser/"}'))
++      .toBe("https://host.example/browser/");
++  });
++
++  it("does not open insecure remote URLs, credentials, fragments, or unsuccessful actions", async () => {
 +    for (const url of [
 +      "http://evil.example:7931/",
 +      "http://localhost.evil.example:7931/",
@@ -32,6 +37,8 @@ index 73dcff6..3953909 100644
 +      "http://user:pass@localhost:7931/",
 +      "javascript:alert(1)",
 +      "http://127.0.0.1:7931/#secret",
++      "https://evil.example/browser/?token=secret",
++      "https://user:password@host.example/browser/",
 +    ]) {
 +      expect(pluginWebPanelUrl(JSON.stringify({ ovis_web_panel_url: url }))).toBeNull();
 +    }
@@ -44,10 +51,10 @@ index 73dcff6..3953909 100644
 +  });
 +});
 diff --git a/server/plugin-actions.ts b/server/plugin-actions.ts
-index a16281f..40f3ce0 100644
+index a16281f..3a00ba4 100644
 --- a/server/plugin-actions.ts
 +++ b/server/plugin-actions.ts
-@@ -74,6 +74,25 @@ export function openedPluginPane(stdout: string | null | undefined): string | nu
+@@ -74,6 +74,27 @@ export function openedPluginPane(stdout: string | null | undefined): string | nu
    return opened;
  }
  
@@ -62,8 +69,10 @@ index a16281f..40f3ce0 100644
 +    if (typeof candidate !== "string" || candidate.length > 2048) continue;
 +    try {
 +      const url = new URL(candidate);
-+      if (!["http:", "https:"].includes(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) continue;
-+      if (!url.port || url.username || url.password || url.hash) continue;
++      const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
++      if (!(url.protocol === "https:" || (url.protocol === "http:" && loopback))) continue;
++      if (url.username || url.password || url.search || url.hash) continue;
++      if (!url.pathname.startsWith("/")) continue;
 +      return url.href;
 +    } catch { /* malformed URL */ }
 +  }
@@ -73,7 +82,7 @@ index a16281f..40f3ce0 100644
  /** The least the pane lookup after a run gets when the run ended right at the wait's deadline. */
  const PANE_LOOKUP_FLOOR_MS = 1_000;
  
-@@ -118,6 +137,8 @@ export function pluginActionResult(log: PluginCommandLog, paneIds: () => Promise
+@@ -118,6 +139,8 @@ export function pluginActionResult(log: PluginCommandLog, paneIds: () => Promise
      exit_code: log.exit_code ?? null,
      output: said === "" ? null : said.slice(-PLUGIN_OUTPUT_CHARS),
      opened_pane_id: null,
@@ -94,7 +103,7 @@ index b2a2ae9..fc9e8f0 100644
 +  web_panel_url?: string;
  }
 diff --git a/src/App.tsx b/src/App.tsx
-index 59c3b2c..883e7eb 100644
+index 59c3b2c..28369a1 100644
 --- a/src/App.tsx
 +++ b/src/App.tsx
 @@ -1,8 +1,8 @@
@@ -116,19 +125,31 @@ index 59c3b2c..883e7eb 100644
  import { paletteOpenQuery } from "./lib/paletteSeed.ts";
  import { MachineContext } from "./lib/machineContext.tsx";
  import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
-@@ -476,6 +477,58 @@ export function App() {
+@@ -476,6 +477,70 @@ export function App() {
      setWebPage(url);
      return true;
    }, [settings.webLinks, viewing, fileDocked, closeFile]);
-+  // A plugin action explicitly requested this local web viewer. Unlike regular links, this
-+  // always prefers the Web Panel; mobile uses the full-screen panel below.
++  // A plugin action returns a user-visible URL, not an instruction to bypass
++  // Ovis's framing restrictions. Cross-port localhost viewers can use the panel.
++  // A same-origin gateway page must NOT be sandboxed with allow-scripts and
++  // allow-same-origin inside Ovis; navigate in the current tab instead.
 +  const openPluginWebPanel = useCallback((uri: string): boolean => {
 +    if (selectedMachineId !== LOCAL_MACHINE) return false;
++    let target: URL;
++    try { target = new URL(uri); } catch { return false; }
 +    const url = panelUrl(uri, window.location);
-+    if (url === null) return false;
-+    if (viewing !== null && fileDocked) closeFile();
-+    setWebPage(url);
-+    return true;
++    if (url !== null) {
++      if (viewing !== null && fileDocked) closeFile();
++      setWebPage(url);
++      return true;
++    }
++    if (target.protocol === "https:" && (
++      target.origin === window.location.origin || target.hostname !== window.location.hostname
++    )) {
++      window.location.assign(target.href);
++      return true;
++    }
++    return false;
 +  }, [selectedMachineId, viewing, fileDocked, closeFile]);
 +
 +  const [browserAction, setBrowserAction] = useState<{ pluginId: string; actionId: string; label: string } | null>(null);
@@ -175,7 +196,7 @@ index 59c3b2c..883e7eb 100644
    // the panel is no dialog, so no trap gives the focus back when it closes: what opened the file
    // (a link in the chat, a row of Files) gets it, as it does from the popup
    useFocusReturn(viewing !== null && fileDocked);
-@@ -1603,6 +1656,7 @@ export function App() {
+@@ -1603,6 +1668,7 @@ export function App() {
    const moreItems: RowMenuItem[] = [
      // first at every width: a phone's header has no palette button, and a touch screen no shortcut
      { id: "palette", label: t("Search panes and actions"), icon: Search, ...(paletteKeys ? { hint: paletteKeys } : {}), run: () => openPalette() },
@@ -183,7 +204,7 @@ index 59c3b2c..883e7eb 100644
      ...(selectedPane && !selectedPane.restore_error ? [{ id: "find", label: t("Find in terminal"), icon: Search, run: actions.openFind }] : []),
      // from 769px Files has its own button beside the lens switch; a phone keeps it here
      ...(selectedPane && !wideScreen ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
-@@ -1790,6 +1844,7 @@ export function App() {
+@@ -1790,6 +1856,7 @@ export function App() {
          <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
          <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
          {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
@@ -191,7 +212,7 @@ index 59c3b2c..883e7eb 100644
          {shownHealth?.lan_exposure && <LanExposureNotice host={shownHealth.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}
          {/* the pane's tab, or two tabs side by side (lib/split.ts): a tab dragged down out of its strip,
              or a sidebar row dragged over this area, opens its pane in the half it is dropped on */}
-@@ -1946,6 +2001,11 @@ export function App() {
+@@ -1946,6 +2013,11 @@ export function App() {
          </MachineContext.Provider>}
          {webPage !== null && filePanelAvailable && !(viewing !== null && fileDocked) &&
            <WebPanel key={webPage} url={webPage} onClose={() => setWebPage(null)} panelStart={<FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} />} />}
@@ -203,7 +224,7 @@ index 59c3b2c..883e7eb 100644
        </div>
  
        <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
-@@ -2014,7 +2074,7 @@ export function App() {
+@@ -2014,7 +2086,7 @@ export function App() {
        </MachineContext.Provider>}
        <CommandPalette key={selectedMachineId} machines={machines} onSelect={selectTarget} open={paletteOpen} initialQuery={paletteQuery} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId}
          // a peek shows the terminal: its toggle says Switch to chat, which ends the peek

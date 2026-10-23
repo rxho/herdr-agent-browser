@@ -1,20 +1,36 @@
 # Ovis web-panel integration
 
-Ovis v0.4.13 does not provide a plugin-defined React surface. This directory contains an **optional, source-level compatibility patch** adding a small, general-purpose web-panel action protocol. It is intended for upstream review. The browser plugin itself does not modify an Ovis installation.
+This is an **optional Ovis source patch**, not a runtime dependency of the Herdr Agent Browser plugin. The unmodified official Ovis client does not automatically render plugin-defined web panels.
 
-## Native web-panel integration (patched Ovis)
+The patch adds a generic `ovis_web_panel_url` result for successful Herdr plugin actions and a discoverable menu entry for installed browser-viewer plugins. It is intended for upstream Ovis review; installing this plugin does not rewrite existing Ovis files.
 
-The action `rxho.agent-browser.open-web-panel` emits a single JSON line on successful completion:
+## Local viewer (cross-port)
+
+When the plugin action returns a local URL such as:
 
 ```json
 {"ovis_web_panel_url":"http://127.0.0.1:7931/"}
 ```
 
-The patch teaches Ovis to validate and pass this signal through its existing plugin-action API, automatically discover installed plugins declaring an `open-web-panel` action, show an entry in the More menu, and open the URL in its built-in Web Panel after a user click. It also supports a full-screen panel on small viewports.
+Ovis can open its existing cross-port Web Panel if framing and origin policies permit. Narrow-screen layouts use Ovis's full-screen viewer panel.
 
-The panel URL must be a loopback HTTP(S) origin. The original Ovis `panelUrl` policy still decides whether the page can be embedded. Successful plugin actions do not cause unsolicited navigation: opening is initiated by the user via the menu or Command Palette.
+## Authenticated public URL (v0.3.0)
 
-Apply against the pinned Ovis revision while evaluating:
+With `HAB_BASE_PATH=/browser` and `HAB_PUBLIC_URL=https://dev.example.com/browser/`, the action returns:
+
+```json
+{"ovis_web_panel_url":"https://dev.example.com/browser/"}
+```
+
+The patch accepts explicitly returned HTTPS URLs and retains rejection of insecure remote HTTP, credentials, query strings and fragments.
+
+**Security boundary:** when the public viewer shares the *same origin* as Ovis, this patch navigates to the authenticated viewer rather than embedding it in Ovis's same-origin iframe with `allow-scripts` and `allow-same-origin`. This avoids treating a same-origin iframe as a separate security boundary. An external HTTPS viewer URL also navigates to the URL directly when not eligible for safe framing.
+
+The gateway must authorize the entire `/browser/*` path, including API and WebSocket requests; configuring the viewer's `HAB_PUBLIC_URL` alone does not implement authentication. See [reverse-proxy deployment](../../docs/reverse-proxy.md).
+
+## Apply the patch
+
+Apply against the pinned Ovis upstream revision. Review and rebase for newer upstream releases.
 
 ```sh
 git clone https://github.com/devswha/ovis.git
@@ -22,15 +38,10 @@ cd ovis
 git checkout 464fda5724f553dfe965bf3cedff71d94f902ec6
 git apply /path/to/herdr-agent-browser/integrations/ovis/ovis-web-panel.patch
 bun install
+bun test server/plugin-actions.test.ts
 bun run build
 ```
 
-The patch has not been merged upstream, so **installing this Herdr plugin alone does not modify official Ovis releases**. This integration should eventually be proposed to Ovis upstream as a general plugin capability, not maintained as an automated monkey-patch.
+A merged upstream Ovis extension would eliminate the patch-install step. Until then, existing Ovis versions can use the portable **Open Agent Browser link pane** Herdr action, or navigate to the configured authenticated public URL in another browser tab.
 
-## Without the Ovis patch
-
-Every supported Herdr/Ovis version can invoke **Open Agent Browser link pane** from its plugin actions. This opens a normal Herdr terminal pane with an OSC 8 hyperlink to the viewer. On wide layouts, clicking the link can open the existing Ovis Web Panel when the Web Links preference is set to Panel. It otherwise opens a separate browser tab.
-
-## Access constraints
-
-The plugin binds only to loopback and has no built-in authentication. Local Ovis works on HTTP through a different localhost port. Remote/mobile Ovis over HTTPS needs an authenticated HTTPS viewer endpoint, including WebSocket forwarding, before it can be embedded safely. This patch does **not** provide that proxy or access control, and should not be represented as remote/mobile production support.
+The Ovis patch does not manage gateway authentication, the CDP port, or session-to-browser association.

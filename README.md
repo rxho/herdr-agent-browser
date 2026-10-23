@@ -4,7 +4,7 @@ A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative
 
 Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.2.2.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
+> **Experimental — v0.3.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
 ## Quick start
 
@@ -108,11 +108,31 @@ On the same machine, open the viewer URL in Ovis's existing Web Panel if origin 
 
 **On mobile or with remote Ovis:** `127.0.0.1` refers to the device you're using, not necessarily the host running Herdr. Use a trusted HTTPS transport and explicit origin configuration. A remote HTTPS Ovis page cannot embed a plain HTTP viewer because of mixed-content restrictions. Cross-host or mobile Ovis integration has not yet been verified.
 
+## Authenticated HTTPS reverse proxy
+
+Herdr Agent Browser can run beneath a gateway path such as `https://dev.example.com/browser/` while preserving its loopback-only listener. It does **not** implement a separate account system or terminate TLS. The gateway must authenticate both ordinary HTTP requests and the CDP WebSocket upgrade.
+
+```sh
+HAB_BASE_PATH=/browser
+HAB_PUBLIC_URL=https://dev.example.com/browser/
+HAB_BIND=127.0.0.1
+HAB_CDP_HOST=127.0.0.1
+```
+
+The public URL is used for Ovis actions and user-facing links. The internal handoff CLI continues using `127.0.0.1:7931/browser/` (or an explicit `HAB_URL`). Configured public Origins are validated without trusting `X-Forwarded-*` headers.
+
+See **[Authenticated reverse-proxy deployment](docs/reverse-proxy.md)** for an example Caddy gateway, a security checklist, and a fully automated HTTPS/Basic-Auth/WebSocket E2E test.
+
+**Ovis note:** a public URL under the exact same origin as Ovis is opened by navigation rather than an unisolated same-origin iframe in the optional Ovis integration patch. The original Ovis release has not adopted this patch.
+
 ## Configuration
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
 | `HAB_PORT` | `7931` | Viewer port |
+| `HAB_BASE_PATH` | `/` | Mount prefix (for example `/browser`) |
+| `HAB_PUBLIC_URL` | Loopback viewer URL | HTTPS URL shown to users and Ovis; path must match base path |
+| `HAB_ALLOWED_ORIGINS` | Empty | Optional additional exact HTTPS Origins for browser-origin validation |
 | `HAB_BIND` | `127.0.0.1` | Viewer listen address; loopback only |
 | `HAB_CDP_HOST` | `127.0.0.1` | CDP upstream; loopback only |
 | `HAB_CDP_PORT` | `19331` | Chrome debugging port |
@@ -123,10 +143,12 @@ On the same machine, open the viewer URL in Ovis's existing Web Panel if origin 
 | `HAB_BROWSER_CACHE` | `~/.local/share/herdr-agent-browser/browsers` | Managed Chrome cache |
 | `HAB_CHROME_PROFILE` | `~/.local/share/herdr-agent-browser/chrome-profile` | Dedicated browser profile |
 | `HAB_FRAME_ANCESTORS` | Empty | Additional exact HTTP(S) origins allowed to embed the viewer |
-| `HAB_URL` | `http://127.0.0.1:7931` | URL used by the handoff CLI |
+| `HAB_URL` | Loopback URL + `HAB_BASE_PATH` | Internal URL used by the handoff CLI |
 | `HAB_AGENT_ID` | `shell-agent` | Calling agent label for handoff requests |
 
 ### API
+
+All paths below are relative to `HAB_BASE_PATH`. With `HAB_BASE_PATH=/browser`, for example, `GET /api/health` becomes `GET /browser/api/health`.
 
 | Endpoint | Description |
 | --- | --- |
@@ -155,9 +177,11 @@ Review [SECURITY.md](SECURITY.md) before use.
 npm ci
 npm run check
 npm run test:e2e
+npm run test:proxy  # requires Caddy, OpenSSL, and Chrome
+npm run test:ovis   # optional: requires a running patched Ovis on localhost:7317
 ```
 
-The E2E suite launches two isolated Chrome processes, verifies browser frame rendering, remote mouse/keyboard interaction, Unicode text input and handoff controls, and cleans up the test profiles.
+The browser E2E suite launches two isolated Chrome processes to verify frame rendering, remote mouse/keyboard input, Unicode text and handoff. The proxy E2E provisions a temporary HTTPS Caddy gateway and isolated Chrome, verifies access controls on HTTP and WebSocket routes, and exercises the same interactions via WSS. Temporary test processes and files are cleaned up afterward.
 
 ## License
 

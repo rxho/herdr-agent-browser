@@ -51,7 +51,9 @@ args=(
   "--user-data-dir=$profile_dir"
 )
 if [[ "$headless" == true ]]; then args+=(--headless=new); fi
-args+=("http://127.0.0.1:$viewer_port/demo")
+base_path="${HAB_BASE_PATH:-/}"
+base_path="${base_path%/}"
+args+=("http://127.0.0.1:$viewer_port${base_path}/demo")
 
 (
   cd "$state_dir"

@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { config as cdpConfig, discover } from "./cdp.js";
-import { HandoffCoordinator, ConflictError } from "./handoff.js";
+import { HandoffCoordinator } from "./handoff.js";
+import { configuredUrls, parseAllowedOrigins, relativeRoute } from "./urls.js";
 
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public");
 const ASSETS = new Map([
@@ -37,9 +38,13 @@ export function serverConfig(env = process.env) {
       return url.origin;
     });
 
+  const urls = configuredUrls(env);
   return {
     host,
     port,
+    basePath: urls.basePath,
+    publicOrigin: env.HAB_PUBLIC_URL ? urls.publicUrl.origin : null,
+    allowedOrigins: parseAllowedOrigins(env.HAB_ALLOWED_ORIGINS || ""),
     frameAncestors: ["'self'", "http://127.0.0.1:7317", "http://localhost:7317", ...origins],
   };
 }
@@ -53,20 +58,35 @@ function sendJSON(response, status, object) {
   response.end(JSON.stringify(object));
 }
 
-function acceptedOrigin(request) {
-  if (!request.headers.origin || !request.headers.host) return false;
+function acceptedOrigin(request, options) {
+  if (!request.headers.origin) return false;
   try {
     const origin = new URL(request.headers.origin);
-    return ["http:", "https:"].includes(origin.protocol) && origin.host === request.headers.host;
+    if (origin.href !== origin.origin + "/" || !["http:", "https:"].includes(origin.protocol)) return false;
+    if (options.publicOrigin && origin.origin === options.publicOrigin) return true;
+    if (options.allowedOrigins.includes(origin.origin)) return true;
+    // Preserve local standalone access. Never accept arbitrary Host values just because
+    // a browser can be tricked into using the same hostname as its Origin.
+    const host = (request.headers.host || "").toLowerCase();
+    const local = ["localhost", "127.0.0.1", "[::1]"];
+    const requestHost = new URL("http://" + host).hostname;
+    return local.includes(requestHost) && origin.host.toLowerCase() === host;
   } catch {
     return false;
   }
 }
 
-function acceptedMutation(request) {
-  // Origin is set by browsers for cross-origin and normal same-origin POSTs.
-  // Non-browser clients such as the local handoff CLI may omit it.
-  return !request.headers.origin || acceptedOrigin(request);
+function acceptedMutation(request, options) {
+  if (request.headers.origin) return acceptedOrigin(request, options);
+  // CLI clients omit Origin; only accept such calls via a loopback Host and
+  // socket. The gateway should additionally enforce its own CSRF policy.
+  const host = (request.headers.host || "").toLowerCase();
+  const localHost = (() => {
+    try { return ["127.0.0.1", "localhost", "[::1]"].includes(new URL("http://" + host).hostname); }
+    catch { return false; }
+  })();
+  const remote = request.socket.remoteAddress || "";
+  return localHost && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote);
 }
 
 async function readJSON(request) {
@@ -122,15 +142,22 @@ export function createViewerServer({
       return sendJSON(response, 400, { error: "Invalid URL." });
     }
 
-    if (url.pathname === "/api/health" && request.method === "GET") {
+    if (options.basePath !== "/" && url.pathname === options.basePath.slice(0, -1)) {
+      response.writeHead(308, { location: options.basePath, "cache-control": "no-store" });
+      return response.end();
+    }
+    const route = relativeRoute(url.pathname, options.basePath);
+    if (route === null) return sendJSON(response, 404, { error: "Not found." });
+
+    if (route === "/api/health" && request.method === "GET") {
       return sendJSON(response, 200, {
         service: "herdr-agent-browser",
-        version: "0.2.2",
+        version: "0.3.0",
         cdpPort: upstream.port,
       });
     }
 
-    if (url.pathname === "/api/status" && request.method === "GET") {
+    if (route === "/api/status" && request.method === "GET") {
       try {
         await discover(upstream, fetchImpl);
         return sendJSON(response, 200, { connected: true });
@@ -139,18 +166,18 @@ export function createViewerServer({
       }
     }
 
-    if (url.pathname === "/api/handoff" && request.method === "GET") {
+    if (route === "/api/handoff" && request.method === "GET") {
       return sendJSON(response, 200, handoff.snapshot());
     }
 
-    if (url.pathname.startsWith("/api/handoff/") && request.method === "POST") {
-      if (!acceptedMutation(request)) {
+    if (route.startsWith("/api/handoff/") && request.method === "POST") {
+      if (!acceptedMutation(request, options)) {
         return sendJSON(response, 403, { error: "Cross-origin mutations are forbidden." });
       }
       try {
         const body = await readJSON(request);
         let result;
-        switch (url.pathname) {
+        switch (route) {
           case "/api/handoff/request":
             result = handoff.request(body);
             break;
@@ -181,16 +208,19 @@ export function createViewerServer({
     if (!["GET", "HEAD"].includes(request.method)) {
       return sendJSON(response, 405, { error: "Method not allowed." });
     }
-    if (url.pathname === "/favicon.ico") {
+    if (route === "/favicon.ico") {
       response.writeHead(204, { "cache-control": "public, max-age=3600" });
       return response.end();
     }
 
-    const asset = ASSETS.get(url.pathname);
+    const asset = ASSETS.get(route);
     if (!asset) return sendJSON(response, 404, { error: "Not found." });
 
     try {
-      const body = readFileSync(path.join(PUBLIC_DIR, asset[0]));
+      const source = readFileSync(path.join(PUBLIC_DIR, asset[0]));
+      const body = asset[0] === "index.html"
+        ? Buffer.from(source.toString("utf8").replace("__HAB_BASE_PATH__", options.basePath))
+        : source;
       response.writeHead(200, {
         "content-type": asset[1],
         "cache-control": "no-store",
@@ -218,7 +248,7 @@ export function createViewerServer({
       return rejectUpgrade(socket, 400, "Bad Request");
     }
 
-    if (pathName !== "/cdp" || !acceptedOrigin(request)) {
+    if (relativeRoute(pathName, options.basePath) !== "/cdp" || !acceptedOrigin(request, options)) {
       return rejectUpgrade(socket, 403, "Forbidden");
     }
 
@@ -273,6 +303,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const options = serverConfig();
   const server = createViewerServer({ options });
   server.listen(options.port, options.host, () => {
-    console.log(`Agent Browser listening on http://${options.host}:${options.port}/`);
+    console.log(`Agent Browser listening on http://${options.host}:${options.port}${options.basePath}`);
   });
 }

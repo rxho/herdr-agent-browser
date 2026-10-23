@@ -1,4 +1,5 @@
 const BrowserUI = window.agent_infra_browser_ui?.BrowserUI;
+const resource = (route) => new URL(route.startsWith("/") ? route.slice(1) : route, document.baseURI);
 
 const viewer = document.getElementById("viewer");
 const status = document.getElementById("status");
@@ -16,7 +17,7 @@ let lastHandoff = { phase: "idle" };
 let connectionGeneration = 0;
 
 async function api(path, body) {
-  const response = await fetch(path, {
+  const response = await fetch(resource(path), {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -137,7 +138,7 @@ async function connect() {
       browserUI = null;
     }
 
-    const endpoint = new URL("/cdp", location.href);
+    const endpoint = resource("cdp");
     endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
     const instance = await BrowserUI.create({
       root: viewer,
@@ -174,7 +175,7 @@ new ResizeObserver(resizeBrowser).observe(viewer);
 // Best effort only: the server's lease timeout also handles abrupt tab closures.
 addEventListener("pagehide", () => {
   if (!leaseId) return;
-  fetch("/api/handoff/release", {
+  fetch(resource("api/handoff/release"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ leaseId }),

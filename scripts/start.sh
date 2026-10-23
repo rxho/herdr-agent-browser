@@ -10,7 +10,9 @@ address="$bind"
 if [[ "$bind" == "::1" ]]; then
   address="[::1]"
 fi
-url="http://$address:$port"
+base_path="${HAB_BASE_PATH:-/}"
+base_path="${base_path%/}"
+url="http://$address:$port${base_path}"
 
 mkdir -p "$state_dir"
 
