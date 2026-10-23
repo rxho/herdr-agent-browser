@@ -222,6 +222,7 @@ npm run check
 npm run test:e2e
 npm run test:proxy  # requires Caddy, OpenSSL, and Chrome
 npm run test:ovis   # optional: requires a running patched Ovis on localhost:7317
+npm run test:mcp-cdp   # optional: requires Chrome and agent-browser 0.39+
 ```
 
 The browser E2E suite launches two isolated Chrome processes to verify frame rendering, remote mouse/keyboard input, Unicode text and handoff. The proxy E2E provisions a temporary HTTPS Caddy gateway and isolated Chrome, verifies access controls on HTTP and WebSocket routes, and exercises the same interactions via WSS. Temporary test processes and files are cleaned up afterward.
