@@ -2,6 +2,20 @@
 
 All notable changes are recorded here. This project remains experimental.
 
+## [0.5.1] - 2026-10-25
+
+### Fixed
+- Stabilized the SDK-backed Session selector and concurrent Viewer lease behavior.
+- Verified two real Viewers against the same Chrome and rejection of a competing manual lease.
+- Guarded Viewer CDP against accidental target deletion during SDK teardown and kept Agent tabs alive across Viewer reconnects.
+- Improved the concurrent Session registration check and regression coverage.
+- Formatted new MCP, Session Registry, Viewer and multi-session test implementation.
+
+### Validation
+- macOS: 50 automated tests passed (one optional skipped); shared-Chrome/two-Agent/two-Viewer E2E passed.
+- Ubuntu 24, Node.js 22: 50 automated tests passed (one optional skipped).
+- Existing browser, HTTPS reverse-proxy and Ovis viewer regressions passed.
+
 ## [0.5.0] - 2026-10-25
 
 ### Added
