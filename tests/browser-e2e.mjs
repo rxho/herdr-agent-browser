@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import net from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import puppeteer from "puppeteer-core";
 import { createViewerServer, serverConfig } from "../src/server.js";
@@ -21,42 +19,24 @@ if (!executablePath) {
   process.exit(1);
 }
 
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-async function waitForChrome(port) {
-  for (let i = 0; i < 80; i += 1) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`);
-      if (response.ok) return response.json();
-    } catch { /* Chrome startup */ }
-    await delay(150);
-  }
-  throw new Error("Timed out waiting for Chrome CDP.");
-}
-
 const userDataDir = mkdtempSync(path.join(tmpdir(), "herdr-agent-browser-e2e-"));
-const cdpPort = await freePort();
-const chrome = spawn(executablePath, [
-  "--headless=new",
-  "--no-first-run",
-  "--no-default-browser-check",
-  "--disable-gpu",
-  `--remote-debugging-port=${cdpPort}`,
-  `--user-data-dir=${userDataDir}`,
-  "about:blank",
-], { stdio: "ignore" });
-
 let viewer;
 let browser;
 let targetBrowser;
+let chrome;
 try {
-  const discovery = await waitForChrome(cdpPort);
+  // Puppeteer owns Chrome startup, detects early exits and captures useful
+  // launch errors. A raw spawn + polling /json/version used to flake in CI.
+  chrome = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    userDataDir,
+    timeout: 45_000,
+    args: ["--no-first-run", "--no-default-browser-check", "--disable-gpu",
+      "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0"],
+  });
+  const cdpPort = Number(new URL(chrome.wsEndpoint()).port);
+  const discovery = await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json();
   viewer = createViewerServer({
     options: serverConfig({}),
     upstream: { host: "127.0.0.1", port: cdpPort },
@@ -154,8 +134,8 @@ try {
   if (browser) await browser.close();
   if (targetBrowser) await targetBrowser.disconnect();
   if (viewer) await new Promise((resolve) => viewer.close(resolve));
-  chrome.kill();
-  await delay(500);
+  if (chrome) await chrome.close();
+  await delay(200);
   try {
     rmSync(userDataDir, { recursive: true, force: true, maxRetries: 15, retryDelay: 200 });
   } catch (error) {
