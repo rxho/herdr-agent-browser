@@ -96,6 +96,17 @@ export class HandoffCoordinator {
     return this.snapshot();
   }
 
+  pageClosed() {
+    // A closed page is never silently replaced or considered completed.
+    if (this.state.requestId) {
+      this.state = {
+        phase: "expired", requestId: this.state.requestId,
+        agentId: this.state.agentId, reason: this.state.reason,
+        updatedAt: this.now(), error: "session_page_closed",
+      };
+    } else this.state = {phase:"idle"};
+  }
+
   requireLease(leaseId) {
     if (this.state.phase !== "human-control" || !leaseId || leaseId !== this.state.leaseId) {
       throw new ConflictError("Human control lease is missing or expired.");

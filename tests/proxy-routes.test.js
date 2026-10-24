@@ -23,6 +23,8 @@ test("subpath routes, redirects, assets and handoff work without root leakage", 
     const res = await fetch(origin+"/browser/"+path);
     assert.equal(res.status,200,path);
   }
+  assert.equal((await (await fetch(origin+"/browser/api/sessions")).json()).sessions.length,0);
+  assert.equal((await fetch(origin+"/api/sessions")).status,404);
   assert.equal((await fetch(origin+"/api/health")).status,404);
   assert.equal((await fetch(origin+"/browserish/api/health")).status,404);
   const mutation = await fetch(origin+"/browser/api/handoff/request",{

@@ -4,7 +4,7 @@ A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative
 
 Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.4.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
+> **Experimental — v0.5.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
 ## Quick start
 
@@ -52,6 +52,24 @@ herdr plugin action invoke rxho.agent-browser.install-browser
 The installer uses `@puppeteer/browsers`, pinned to `155.0.8059.79` by default, and reuses an existing installation on subsequent invocations. The downloaded executable is discovered automatically, along with system Chrome and supported Puppeteer/Playwright caches. An explicitly set `HAB_CHROME_BINARY` takes priority. On Linux hosts with AppArmor's restricted unprivileged user namespaces, the launcher prefers an available distro-profiled system Chrome over downloaded Chrome for Testing; use `HAB_CHROME_BINARY` to explicitly select a permitted alternate executable.
 
 **Linux requirements:** browser archives do not include all OS libraries. Install the distribution's required Chrome libraries separately. Ubuntu 23.10+ may restrict downloaded Chrome for Testing binaries from creating sandbox user namespaces through AppArmor. If Chrome reports `No usable sandbox`, prefer a distro-packaged Chrome with an appropriate AppArmor profile (`HAB_CHROME_BINARY=/usr/bin/google-chrome`) or have an administrator create a restrictive AppArmor profile granting the browser userns permission. The plugin does not automatically append `--no-sandbox` or weaken system-wide sandbox policy.
+
+## Shared-login multi-session mode (v0.5)
+
+Several Claude/Codex/other Agents can operate separate pinned Tabs in **one Chrome default BrowserContext**, sharing normal website cookies, login state and localStorage. Each Agent's handoff request and human lease are bound to its own CDP target.
+
+**[Multi-session architecture, session identity contract and migration guide](docs/multi-session.md)**
+
+For new Agent sessions, the host supplies a unique `HAB_BROWSER_SESSION_ID` **once per Agent process launch**, inherited by both MCP servers. It must not be derived exclusively from cwd, Agent label or pane ID.
+
+```sh
+export HAB_BROWSER_SESSION_ID="$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')"
+export HAB_AGENT_LABEL="Research Agent A"
+exec claude
+```
+
+The native `agent-browser` MCP wrapper creates a new Tab with `--pin-tab`, records its exact targetId and refuses to adopt any target claimed by another Session. The handoff MCP looks up the same ID and target on each action. A second Session's Agent remains operational while a human takes over A. The Viewer includes a Session selector and a nontransferable lease.
+
+The underlying CDP connection still has browser-wide permissions: **this is cooperative UI and workflow isolation, not a security sandbox**. A service restart currently loses in-memory session registrations; browser-tab refresh/reconnect does not. Browser OAuth popups and multiple owned Tabs are not supported yet.
 
 ## Agent MCP integration (explicit consent)
 
@@ -223,6 +241,7 @@ npm run test:e2e
 npm run test:proxy  # requires Caddy, OpenSSL, and Chrome
 npm run test:ovis   # optional: requires a running patched Ovis on localhost:7317
 npm run test:mcp-cdp   # optional: requires Chrome and agent-browser 0.39+
+npm run test:multi    # optional: requires Chrome and agent-browser 0.39+
 ```
 
 The browser E2E suite launches two isolated Chrome processes to verify frame rendering, remote mouse/keyboard input, Unicode text and handoff. The proxy E2E provisions a temporary HTTPS Caddy gateway and isolated Chrome, verifies access controls on HTTP and WebSocket routes, and exercises the same interactions via WSS. Temporary test processes and files are cleaned up afterward.

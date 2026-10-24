@@ -34,12 +34,15 @@
       }
       button:disabled { opacity: 0.55; cursor: default; }
       button[aria-pressed="true"] { border-color: #d2a152; background: #675021; }
-      #mode, #handoff { padding: 4px 16px; color: #b3bfd3; font-size: 12px; min-height: 20px; }
+      #mode, #handoff, #session-details { padding: 4px 16px; color: #b3bfd3; font-size: 12px; min-height: 20px; }
+      .session-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 8px 16px; }
+      #session-select { min-width: 180px; max-width: min(75vw, 460px); padding: 7px 12px; border: 1px solid #53627d; border-radius: 6px; background: #1f2738; color: #fff; font: inherit; }
+      #session-select:disabled { opacity: 0.6; }
       #handoff:not(:empty) { background: #393222; color: #f8d99d; }
       .text-tools { display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
       .text-tools input { flex: 1; min-width: 0; font: inherit; background: #1f2738; border: 1px solid #53627d; color: #fff; padding: 8px; border-radius: 6px; }
       .text-tools button { flex: none; }
-      #viewer { height: calc(100dvh - 166px); min-height: 320px; overflow: auto; }
+      #viewer { height: calc(100dvh - 222px); min-height: 320px; overflow: auto; }
       #viewer ai-browser-container { transform-origin: top left; }
     </style>
   </head>
@@ -50,6 +53,13 @@
       <button id="retry" type="button">Reconnect</button>
       <button id="takeover" type="button" aria-pressed="false">Take control</button>
     </header>
+    <div class="session-tools">
+      <label for="session-select">Agent session</label>
+      <select id="session-select" aria-label="Agent session" disabled>
+        <option value="legacy">Legacy browser view</option>
+      </select>
+    </div>
+    <div id="session-details" role="status"></div>
     <div id="handoff" role="status"></div>
     <div id="mode" role="status"></div>
     <div class="text-tools">

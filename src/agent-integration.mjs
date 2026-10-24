@@ -58,9 +58,15 @@ function requireNativeMcp(binary) {
 function manifestEntries(root,port,binary,env) {
   return {
     herdr_agent_browser: {
-      command:binary,
-      args:["mcp","--tools","core"],
-      env:{AGENT_BROWSER_CDP:String(port)},
+      command:"/bin/bash",
+      args:[join(root,"scripts/with-node.sh"),join(root,"scripts/browser-mcp.mjs")],
+      env:{
+        HAB_AGENT_BROWSER_BINARY:binary,
+        HAB_CDP_PORT:String(port),
+        HAB_BASE_PATH:env.HAB_BASE_PATH||"/",
+        ...(env.HAB_URL?{HAB_URL:env.HAB_URL}:{}),
+        ...(env.HAB_PORT?{HAB_PORT:env.HAB_PORT}:{}),
+      },
     },
     herdr_browser_handoff: {
       command:"/bin/bash",

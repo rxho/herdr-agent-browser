@@ -1,5 +1,11 @@
 # Security
 
+## Multi-session boundaries
+
+The Session Registry and per-target handoff leases prevent ordinary cooperating workflows from accidentally using another Session's Tab or manual control state. This **does not isolate a hostile Agent**: native browser MCP instances retain full browser-level CDP authority. A process holding the upstream CDP port may still manipulate any Tab. Viewer UI inert mode does not revoke CDP capabilities, and human release never authorizes arbitrary sensitive actions.
+
+Separate Session Tabs in the default Chrome BrowserContext share login cookies and localStorage. Logging out or switching accounts in one Session can affect all Sessions on that origin. OAuth popups and multi-Tab ownership are not included in the first release.
+
 ## Agent MCP integration
 
 Plugin installation alone does not grant Agent clients browser access. Configuring each Agent requires explicit user approval through the setup Pane or a matching CLI preview token. Integration modifies only two named MCP entries in the chosen Agent config; it never changes global instruction files or permission policies.

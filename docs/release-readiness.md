@@ -18,6 +18,11 @@ The current implementation is an **experimental local evaluation build**.
 - [x] v0.3.0: HTTP+WebSocket auth behind a real HTTPS Caddy reverse proxy, negative Origin tests, mouse/keyboard/Unicode/handoff E2E.
 - [x] v0.3.0: public Ovis action URL with a separate internal handoff URL; optional Ovis integration patch tested and built.
 - [x] v0.4.0: Agent detection and explicit per-Agent MCP configuration approval with config-drift verification and safe revocation.
+- [x] v0.5.0: Session Registry provides explicit CDP target bindings in the default shared BrowserContext.
+- [x] v0.5.0: Handoff lease lifecycle per Session/target and Viewer Session selection; legacy API preserved without registered Sessions.
+- [x] v0.5.0: Two real native Agent MCP sessions and Viewer UI E2E: shared storage, separate target/DOM, lease ownership, Agent B progressing while A held, release/reconnect, tab_gone.
+- [ ] Distinct fully active Viewer clients have backend lease-conflict tests; parallel browser render load/stability across multiple Viewers needs expanded testing.
+- [ ] In-memory Session Registry is lost on service restart; service-restart recovery is not guaranteed.
 - [x] v0.4.0: Claude Code, Codex and OpenCode adapters; ZCode deliberately detection-only.
 - [x] v0.4.0: native agent-browser 0.39+ MCP tool discovery and standalone handoff MCP test.
 - [ ] Hard enforced Agent pause/CDP ownership and support for already running Agents without session restart remain future work.
@@ -34,7 +39,8 @@ The current implementation is an **experimental local evaluation build**.
 - [ ] Actual Ovis Web Panel integration on desktop and mobile, including private HTTPS.
 - [ ] Real login, 2FA, file picker and permission dialog workflows on representative sites.
 - [ ] Robust agent pause/ack/resume integration with Herdr, ZCode, Codex and Claude Code.
-- [ ] Multiple concurrent Agent/browser sessions with stable mapping.
+- [x] Multiple concurrent Agent/browser sessions with stable target mapping in the active Viewer server process.
+- [ ] Mapping persistence/recovery after Viewer service restart.
 - [ ] SSH remote host routing, reconnects and tunnel management.
 - [ ] Mobile touch interaction, viewport layout, iOS/Android keyboard and IME validation.
 - [ ] Security review of privilege separation, authenticated reverse proxy and exposed tokens.
@@ -43,8 +49,8 @@ The current implementation is an **experimental local evaluation build**.
 
 ## Current caveats
 
-The handoff protocol is **cooperative**. A coding agent that does not use it may still issue CDP commands during human input. The browser viewer can hold only one manual control lease per service instance, but this does not restrict external CDP clients. An expired lease does not automatically allow a waiting Agent to continue.
+The handoff protocol is **cooperative**. A coding agent that does not use it may still issue CDP commands during human input. The Viewer enforces one manual control lease **per registered Session target**, not a single global lease. These leases do not restrict external CDP clients. An expired lease does not automatically allow a waiting Agent to continue.
 
 Ovis integration is currently URL/iframe based. There is no native Ovis extension or automatic association between a Herdr Pane and a browser CDP target.
 
-Private repository access is recommended until public Alpha gates are satisfied.
+The repository is public as an experimental pre-release. Do not treat the above unchecked areas as completed production guarantees.

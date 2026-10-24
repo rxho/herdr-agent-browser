@@ -2,6 +2,24 @@
 
 All notable changes are recorded here. This project remains experimental.
 
+## [0.5.0] - 2026-10-25
+
+### Added
+- Per-Agent `browserSessionId` and explicit Session Registry mapping to one CDP target in the shared default Chrome BrowserContext.
+- Browser MCP session initialization via the published `agent-browser --session --cdp --pin-tab` tools with targetId verification and fail-closed collision checks.
+- Scoped human handoff request, lease, heartbeat, release, acknowledgment and cancellation; concurrent Agent Sessions remain independent.
+- Viewer session selector with target-bound input controls and reconnectable session state.
+- Session discovery, explicit claim/create and unregister HTTP APIs under existing `HAB_BASE_PATH` routing.
+- [Multi-session migration and security guide](docs/multi-session.md).
+- Real two-Agent one-Chrome E2E validating shared cookie/localStorage, isolated DOM/sessionStorage, independent handoffs, Tab closure with `tab_gone`, and Viewer reconnection.
+
+### Compatibility and limits
+- Existing single-session Viewer and handoff remain compatible while no multi-session has registered; mixed unscoped handoff is rejected once multi-session mode starts.
+- Shared login also shares account changes and sign-outs for the same origin.
+- In-memory Session Registry survives Viewer page reconnects but **not Viewer service restarts**.
+- Cooperative Tab binding is not a security sandbox; a browser-level CDP client retains access to other targets.
+- Popup ownership, multi-Tab per Agent, hard CDP write locks and automatic per-conversation identity injection are not yet implemented.
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

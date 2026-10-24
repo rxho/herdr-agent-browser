@@ -130,8 +130,10 @@ https://localhost:${proxyPort} {
 
   assert.equal(await httpsRequest(proxyPort,"/browser/"),401);
   assert.equal(await httpsRequest(proxyPort,"/browser/api/health"),401);
+  assert.equal(await httpsRequest(proxyPort,"/browser/api/sessions"),401);
   assert.equal(await httpsRequest(proxyPort,"/browser/",{authorization:auth}),200);
   assert.equal(await httpsRequest(proxyPort,"/browser/api/health",{authorization:auth}),200);
+  assert.equal(await httpsRequest(proxyPort,"/browser/api/sessions",{authorization:auth}),200);
 
   assert.equal(await websocketStatus(proxyPort,null,publicUrl.slice(0,-9)),401);
   assert.equal(await websocketStatus(proxyPort,auth,"https://attacker.example"),403);

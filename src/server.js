@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import { config as cdpConfig, discover } from "./cdp.js";
 import { HandoffCoordinator } from "./handoff.js";
+import { BrowserSessionRegistry, browserCommand, SessionError } from "./sessions.js";
 import { configuredUrls, parseAllowedOrigins, relativeRoute } from "./urls.js";
 
 const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public");
@@ -124,7 +125,11 @@ export function createViewerServer({
   upstream = cdpConfig(),
   fetchImpl = fetch,
   handoff = new HandoffCoordinator(),
+  sessionRegistry,
 } = {}) {
+  const sessions = sessionRegistry || new BrowserSessionRegistry({
+    command: (method,params) => browserCommand(upstream,method,params,fetchImpl),
+  });
   const policy = [
     "default-src 'self' data: blob:",
     "script-src 'self'",
@@ -152,7 +157,7 @@ export function createViewerServer({
     if (route === "/api/health" && request.method === "GET") {
       return sendJSON(response, 200, {
         service: "herdr-agent-browser",
-        version: "0.4.0",
+        version: "0.5.0",
         cdpPort: upstream.port,
       });
     }
@@ -166,8 +171,36 @@ export function createViewerServer({
       }
     }
 
+    if (route === "/api/sessions" && request.method === "GET") {
+      return sendJSON(response, 200, {sessions:await sessions.list()});
+    }
+    if (route.startsWith("/api/sessions/") && request.method === "POST") {
+      if (!acceptedMutation(request,options))
+        return sendJSON(response,403,{error:"Cross-origin mutations are forbidden."});
+      try {
+        const body=await readJSON(request);
+        let result;
+        switch(route){
+          case "/api/sessions/register": result=await sessions.register(body);break;
+          case "/api/sessions/create": result=await sessions.create(body);break;
+          case "/api/sessions/unregister": result=await sessions.remove(body.browserSessionId);break;
+          default: return sendJSON(response,404,{error:"Unknown session action."});
+        }
+        return sendJSON(response,200,result);
+      }catch(error){
+        return sendJSON(response,error.statusCode||500,{error:error.message,code:error.code||"error"});
+      }
+    }
     if (route === "/api/handoff" && request.method === "GET") {
-      return sendJSON(response, 200, handoff.snapshot());
+      const sessionId=url.searchParams.get("browserSessionId");
+      if(sessionId){
+        try{
+          const selected=await sessions.get(sessionId);
+          return sendJSON(response,200,{...selected.handoff.snapshot(),
+            browserSessionId:sessionId,targetId:selected.targetId,pageClosed:selected.pageClosed});
+        }catch(error){return sendJSON(response,error.statusCode||500,{error:error.message,code:error.code||"error"});}
+      }
+      return sendJSON(response,200,handoff.snapshot());
     }
 
     if (route.startsWith("/api/handoff/") && request.method === "POST") {
@@ -176,32 +209,43 @@ export function createViewerServer({
       }
       try {
         const body = await readJSON(request);
+        const sessionId=body.browserSessionId;
+        if(!sessionId && sessions.sessions.size>0)
+          throw new SessionError("Specify browserSessionId; active Sessions cannot use global handoff.","session_required",400);
+        const selected = sessionId ? await sessions.get(sessionId,{
+          requireOpen:["/api/handoff/request","/api/handoff/acquire","/api/handoff/heartbeat",
+            "/api/handoff/release"].includes(route),
+        }) : null;
+        if(selected && body.targetId!==selected.targetId)
+          throw new SessionError("Request targetId does not match bound Session target.","target_mismatch");
+        const coordinator=selected?.handoff||handoff;
         let result;
         switch (route) {
           case "/api/handoff/request":
-            result = handoff.request(body);
+            result = coordinator.request(body);
             break;
           case "/api/handoff/acquire":
-            result = handoff.acquire();
+            result = coordinator.acquire();
             break;
           case "/api/handoff/heartbeat":
-            result = handoff.heartbeat(body.leaseId);
+            result = coordinator.heartbeat(body.leaseId);
             break;
           case "/api/handoff/release":
-            result = handoff.release(body.leaseId);
+            result = coordinator.release(body.leaseId);
             break;
           case "/api/handoff/ack":
-            result = handoff.ack(body.requestId);
+            result = coordinator.ack(body.requestId);
             break;
           case "/api/handoff/cancel":
-            result = handoff.cancel(body.requestId);
+            result = coordinator.cancel(body.requestId);
             break;
           default:
             return sendJSON(response, 404, { error: "Unknown handoff action." });
         }
-        return sendJSON(response, 200, result);
+        return sendJSON(response, 200, selected
+          ? {...result,browserSessionId:selected.browserSessionId,targetId:selected.targetId} : result);
       } catch (error) {
-        return sendJSON(response, error.statusCode || 500, { error: error.message });
+        return sendJSON(response, error.statusCode || 500, { error: error.message,code:error.code||"error" });
       }
     }
 
@@ -270,6 +314,24 @@ export function createViewerServer({
     const pending = [];
 
     client.on("message", (message, binary) => {
+      // The upstream SDK calls Target.closeTarget while tearing down a viewer.
+      // Browser inspection and connection teardown must never close an Agent's
+      // page. Blocking explicit browser/tab destruction here is a safety net,
+      // NOT complete CDP isolation (a client may still issue other write commands).
+      if (!binary) {
+        try {
+          const payload=JSON.parse(message.toString());
+          if (["Browser.close","Target.closeTarget",
+                "Target.disposeBrowserContext"].includes(payload.method)) {
+            if (Number.isInteger(payload.id) && client.readyState===WebSocket.OPEN) {
+              client.send(JSON.stringify({id:payload.id,error:{
+                code:-32000,message:"Viewer cannot create or destroy Chrome targets.",
+              }}));
+            }
+            return;
+          }
+        }catch { /* Other CDP messages are passed through unchanged. */ }
+      }
       if (remote.readyState === WebSocket.OPEN) {
         remote.send(message, { binary });
       } else if (remote.readyState === WebSocket.CONNECTING && pending.length < 32) {
