@@ -11,7 +11,8 @@ All notable changes are recorded here. This project remains experimental.
 - Viewer session selector with target-bound input controls and reconnectable session state.
 - Session discovery, explicit claim/create and unregister HTTP APIs under existing `HAB_BASE_PATH` routing.
 - [Multi-session migration and security guide](docs/multi-session.md).
-- Real two-Agent one-Chrome E2E validating shared cookie/localStorage, isolated DOM/sessionStorage, independent handoffs, Tab closure with `tab_gone`, and Viewer reconnection.
+- Real two-Agent/two-Viewer E2E validating shared cookie/localStorage, isolated DOM/sessionStorage, independent handoffs, Tab closure with `tab_gone`, Viewer switching, and reconnection.
+- Viewer CDP safeguard against accidental Chrome target closure during SDK teardown; reconnect does not destroy Agent tabs.
 
 ### Compatibility and limits
 - Existing single-session Viewer and handoff remain compatible while no multi-session has registered; mixed unscoped handoff is rejected once multi-session mode starts.
