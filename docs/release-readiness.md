@@ -4,6 +4,10 @@ The current implementation is an **experimental local evaluation build**.
 
 ## Verified
 
+- [x] v0.6.0: One long-running browser MCP routes per Hook-signed conversation identity, with A→B→A, compaction, shared Cookie/localStorage and isolated page E2E.
+- [x] v0.6.0: Local cross-process atomic allocation lock and signed, time-bound per-call identity validation.
+- [ ] Production Claude CLI Hook integration, OAuth popup ownership, remote cross-host mutex and malicious browser-level CDP enforcement remain unverified or unsupported.
+
 - [x] Installs as a standard Herdr plugin from a GitHub repository.
 - [x] Uses the published `@agent-infra/browser-ui` bundle, preserving upstream notices.
 - [x] CDP discovery and browser-level WebSocket forwarding.
@@ -22,7 +26,7 @@ The current implementation is an **experimental local evaluation build**.
 - [x] v0.5.0: Handoff lease lifecycle per Session/target and Viewer Session selection; legacy API preserved without registered Sessions.
 - [x] v0.5.0: Two real native Agent MCP sessions and Viewer UI E2E: shared storage, separate target/DOM, lease ownership, Agent B progressing while A held, release/reconnect, tab_gone.
 - [ ] Distinct fully active Viewer clients have backend lease-conflict tests; parallel browser render load/stability across multiple Viewers needs expanded testing.
-- [ ] In-memory Session Registry is lost on service restart; service-restart recovery is not guaranteed.
+- [x] v0.6.0: Viewer persists exact Session→CDP target mapping; restart revalidates existing Chrome targets and expires in-flight human leases.
 - [x] v0.4.0: Claude Code, Codex and OpenCode adapters; ZCode deliberately detection-only.
 - [x] v0.4.0: native agent-browser 0.39+ MCP tool discovery and standalone handoff MCP test.
 - [ ] Hard enforced Agent pause/CDP ownership and support for already running Agents without session restart remain future work.
