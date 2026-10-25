@@ -9,6 +9,7 @@ import { z } from "zod";
 import { spawnSync } from "node:child_process";
 import { ConversationRouter } from "../src/conversation-router.mjs";
 import { configuredUrls } from "../src/urls.js";
+import { startConversationBrowserProxy } from "../src/native-conversation-proxy.mjs";
 
 const { handoffUrl, publicUrl } = configuredUrls();
 const port=String(process.env.HAB_CDP_PORT||19331);
@@ -61,31 +62,13 @@ function tool(server,name,description,parameters,handler){
     catch(err){return {isError:true,content:[{type:"text",text:err.message}]};}
   });
 }
-const server=new McpServer({name:"herdr-conversation-"+mode,version:"0.6.0"},{instructions:
-  "conversationId must be supplied by a trusted PreToolUse adapter on every invocation, never guessed or chosen by the model. No global active conversation. Login/MFA requires cooperative human handoff."});
 if(mode==="browser"){
-  tool(server,"agent_browser_open","Navigate the page owned by this conversation.",{url:z.string().url()},async({conversationId,url})=>{
-    const s=await scope(conversationId);
-    const data=cli(s.browserSessionId,["open",url]);
-    if(data.targetId&&data.targetId!==s.targetId)
-      throw Error("session_target_mismatch: open created or switched to a foreign tab");
-    return data;
+  await startConversationBrowserProxy({
+    router,namespace,nativeBinary:binary,cdpPort:port,env:process.env,
   });
-  tool(server,"agent_browser_snapshot","Read the active conversation's page.",{interactive:z.boolean().optional()},async({conversationId,interactive})=>{
-    const s=await scope(conversationId);
-    return cli(s.browserSessionId,["snapshot",...(interactive?["-i"]:[])]);
-  });
-  tool(server,"agent_browser_click","Click an element on this conversation's tab.",{selector:z.string()},async({conversationId,selector})=>{
-    const s=await scope(conversationId);return cli(s.browserSessionId,["click",selector]);
-  });
-  tool(server,"agent_browser_fill","Fill an input on this conversation's tab.",{selector:z.string(),text:z.string()},async({conversationId,selector,text})=>{
-    const s=await scope(conversationId);return cli(s.browserSessionId,["fill",selector,text]);
-  });
-  tool(server,"agent_browser_get_url","Read this conversation's current page URL.",{},async({conversationId})=>{
-    const s=await scope(conversationId);return cli(s.browserSessionId,["get","url"]);
-  });
-  tool(server,"conversation_page","Read mapped conversation and CDP target.",{},async({conversationId})=>scope(conversationId));
-} else {
+}else{
+  const server=new McpServer({name:"herdr-conversation-handoff",version:"0.6.0"},{instructions:
+    "conversationId must be provided by a trusted hook on every call; no global current conversation. Do not operate on a page during its human handoff."});
   const route= id=>"api/handoff?browserSessionId="+encodeURIComponent(id);
   tool(server,"handoff_status","Read handoff state for this conversation.",{},async({conversationId})=>{
     const s=await scope(conversationId);return api("GET",route(s.browserSessionId));
@@ -110,5 +93,5 @@ if(mode==="browser"){
     const s=await scope(conversationId);
     return api("POST","api/handoff/cancel",{browserSessionId:s.browserSessionId,targetId:s.targetId,requestId});
   });
+  await server.connect(new StdioServerTransport());
 }
-await server.connect(new StdioServerTransport());
