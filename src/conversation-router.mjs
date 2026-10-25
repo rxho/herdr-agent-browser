@@ -9,7 +9,7 @@ export function sessionIdentity(conversationId, namespace = "claude") {
     throw new Error("conversationId_required: inject a real stable conversation ID via trusted adapter.");
   if (typeof namespace !== "string" || !VALID.test(namespace))
     throw new Error("Invalid conversation namespace.");
-  return "conv-" + createHash("sha256").update(JSON.stringify([namespace, conversationId])).digest("hex").slice(0,32);
+  return "conv-" + createHash("sha256").update(JSON.stringify([namespace, conversationId])).digest("hex").slice(0,24);
 }
 
 /** Single-flight allocation is per conversation, not a mutable active-session selector. */
