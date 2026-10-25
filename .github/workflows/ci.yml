@@ -15,3 +15,10 @@ jobs:
         run: |
           CHROME_BIN="$(command -v google-chrome || command -v chromium)"
           CHROME_BIN="$CHROME_BIN" npm run test:e2e
+
+      - name: Conversation-scoped MCP E2E (real Chrome)
+        run: |
+          npm install --no-save --no-package-lock agent-browser@0.39.2
+          CHROME_BIN="$(command -v google-chrome || command -v chromium)" \
+          HAB_AGENT_BROWSER_BINARY="$PWD/node_modules/.bin/agent-browser" \
+          node tests/conversation-e2e.mjs
