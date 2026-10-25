@@ -48,7 +48,7 @@ const router=new ConversationRouter({
   },
 });
 async function scope(conversationId){
-  const session=await router.resolve(conversationId,namespace);
+  const session=await router.resolve(conversationId,namespace,{create:mode==="browser"});
   if(session.pageClosed)throw Error("session_page_closed");
   // Validate target before every operation. CLI pins via stable per-conversation name.
   return session;
