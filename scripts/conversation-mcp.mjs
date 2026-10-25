@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { ConversationRouter } from "../src/conversation-router.mjs";
 import { configuredUrls } from "../src/urls.js";
 import { startConversationBrowserProxy } from "../src/native-conversation-proxy.mjs";
+import { readIdentitySecret, verifyConversationProof } from "../src/conversation-identity.mjs";
 
 const { handoffUrl, publicUrl } = configuredUrls();
 const port=String(process.env.HAB_CDP_PORT||19331);
@@ -18,7 +19,8 @@ const namespace=process.env.HAB_CONVERSATION_NAMESPACE||"claude";
 const mode=process.argv.includes("--handoff")?"handoff":"browser";
 // Optional in the advertised schema so the LLM need not invent an identity.
 // Required on the wire: a trusted client Hook must supply it on every call.
-const schema={conversationId:z.string().min(1).max(128).optional()};
+const schema={conversationId:z.string().min(1).max(128).optional(),conversationProof:z.string().optional()};
+const identitySecret=readIdentitySecret();
 async function api(method,route,body){
   const resp=await fetch(new URL(route,handoffUrl),{
     method,headers:body?{"content-type":"application/json"}:{},
@@ -58,7 +60,8 @@ async function scope(conversationId){
 }
 function tool(server,name,description,parameters,handler){
   server.tool(name,description,{...schema,...parameters},async args=>{
-    try{return jsonResult(await handler(args));}
+    try{verifyConversationProof(args.conversationProof,identitySecret,namespace,args.conversationId,name);
+      return jsonResult(await handler(args));}
     catch(err){return {isError:true,content:[{type:"text",text:err.message}]};}
   });
 }
