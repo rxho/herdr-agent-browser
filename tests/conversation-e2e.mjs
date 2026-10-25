@@ -37,10 +37,10 @@ try{
     args:["--no-first-run","--disable-gpu","--remote-debugging-port=0"],
   });
   const cdPort=Number(new URL(chrome.wsEndpoint()).port);
-  viewer=createViewerServer({
-    options:serverConfig({HAB_BASE_PATH:"/browser",HAB_PORT:"7931"}),
-    upstream:{host:"127.0.0.1",port:cdPort},
-  });
+  const options=serverConfig({HAB_BASE_PATH:"/browser",HAB_PORT:"7931"});
+  const upstream={host:"127.0.0.1",port:cdPort};
+  const sessionStorePath=join(home,"viewer-registry.json");
+  viewer=createViewerServer({options,upstream,sessionStorePath});
   await new Promise(ok=>viewer.listen(0,"127.0.0.1",ok));
   const port=viewer.address().port;
   const url="http://127.0.0.1:"+port;
@@ -111,6 +111,17 @@ try{
     conversationId:"claude-session-A",requestId:reqA.requestId})).complete,true);
   const bstate=await fetch(url+"/browser/api/handoff?browserSessionId="+encodeURIComponent(B.browserSessionId)).then(x=>x.json());
   assert.equal(bstate.phase,"waiting-human");
+
+  // Restart only the Viewer service, preserve Chrome and Session mapping.
+  await new Promise(ok=>viewer.close(ok));
+  viewer=createViewerServer({options,upstream,sessionStorePath});
+  await new Promise(ok=>viewer.listen(port,"127.0.0.1",ok));
+  const afterViewerRestart=(await listing()).sessions;
+  assert.equal(afterViewerRestart.length,2);
+  assert.equal(afterViewerRestart.find(s=>s.browserSessionId===A.browserSessionId).targetId,A.targetId);
+  assert.equal(afterViewerRestart.find(s=>s.browserSessionId===B.browserSessionId).targetId,B.targetId);
+  // Unacknowledged handoff is invalidated; it cannot auto-authorize resume.
+  assert.equal(afterViewerRestart.find(s=>s.browserSessionId===B.browserSessionId).handoff.phase,"expired");
 
   // Stop and restart MCP processes, recover exact pinned A target.
   await Promise.all(clients.map(x=>x.close()));
