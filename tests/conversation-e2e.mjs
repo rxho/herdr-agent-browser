@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { signConversationProof } from "../src/conversation-identity.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import puppeteer from "puppeteer-core";
@@ -14,6 +16,10 @@ const chromeBinary=process.env.CHROME_BIN ||
     ?"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome":"/usr/bin/google-chrome");
 const profile=mkdtempSync(join(tmpdir(),"herdr-conversation-chrome-"));
 const home=mkdtempSync(join(tmpdir(),"herdr-conversation-home-"));
+const secret=randomBytes(32);
+const secretPath=join(home,"identity-secret");
+writeFileSync(secretPath,secret,{mode:0o600});
+const signed=(name,args={})=>args.conversationId?{...args,conversationProof:signConversationProof(secret,"claude-test",args.conversationId,name)}:args;
 let chrome,viewer;
 const clients=[];
 async function mcp(mode,env){
@@ -27,7 +33,7 @@ async function mcp(mode,env){
   clients.push(client);return client;
 }
 const call=async(client,name,args)=>{
-  const response=await client.callTool({name,arguments:args});
+  const response=await client.callTool({name,arguments:signed(name,args)});
   assert(!response.isError,JSON.stringify(response));
   return response.content?.[0]?.text||"";
 };
@@ -46,6 +52,7 @@ try{
   const url="http://127.0.0.1:"+port;
   const env={HAB_CDP_PORT:String(cdPort),HAB_URL:url,
     HAB_BASE_PATH:"/browser",HAB_CONVERSATION_NAMESPACE:"claude-test",
+    HAB_CONVERSATION_SECRET_FILE:secretPath,
     AGENT_BROWSER_NAMESPACE:"hce"+process.pid,
     AGENT_BROWSER_SOCKET_DIR:join(tmpdir(),"habsock-"+process.pid)};
   console.log("STAGE starting native MCP proxy");
@@ -59,10 +66,16 @@ try{
   assert(!names.has("agent_browser_tab_select"));
   const openSchema=toolList.tools.find(t=>t.name==="agent_browser_open").inputSchema;
   assert(openSchema.properties.conversationId);
+  assert(openSchema.properties.conversationProof);
   assert(!openSchema.properties.session);
   assert(!openSchema.required?.includes("conversationId"));
   const missingIdentity=await browser.callTool({name:"agent_browser_get_url",arguments:{}});
   assert(missingIdentity.isError,"Calls without a Hook-injected conversationId must fail closed");
+  const forgedProof=await browser.callTool({name:"agent_browser_get_url",arguments:{
+    ...signed("agent_browser_get_url",{conversationId:"claude-session-A"}),
+    conversationId:"claude-session-B"
+  }});
+  assert(forgedProof.isError,"Signed A proof must not be usable as B's identity");
   const handoff=await mcp("handoff",env);
   console.log("STAGE handoff connected");
   const pageUrl=url+"/browser/demo";
@@ -75,7 +88,7 @@ try{
   assert((await call(browser,"agent_browser_get_url",{conversationId:"claude-session-A"})).includes("/browser/demo"));
   // A model-supplied native session is overridden by the trusted mapped session.
   const forged=await browser.callTool({name:"agent_browser_get_url",arguments:{
-    conversationId:"claude-session-A",session:"some-other-session",
+    ...signed("agent_browser_get_url",{conversationId:"claude-session-A"}),session:"some-other-session",
   }});
   assert(!forged.isError,JSON.stringify(forged));
   const listing=()=>fetch(url+"/browser/api/sessions").then(r=>r.json());
@@ -161,7 +174,7 @@ try{
   console.log("STAGE tab close");
   await a.close();
   const gone=await restarted.callTool({name:"agent_browser_get_url",
-    arguments:{conversationId:"claude-session-A"}});
+    arguments:signed("agent_browser_get_url",{conversationId:"claude-session-A"})});
   assert(gone.isError);
   assert(/session_page_closed|unrecoverable/.test(JSON.stringify(gone)));
   assert.equal(await b.$eval("#name",el=>el.value),"B continues");
