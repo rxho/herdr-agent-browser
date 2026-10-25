@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { WebSocket } from "ws";
 import { discover } from "./cdp.js";
 import { HandoffCoordinator, ConflictError } from "./handoff.js";
@@ -66,16 +68,83 @@ export class BrowserSessionRegistry {
     leaseMs = 45000,
     command,
     onChange = () => {},
+    storePath = null,
   } = {}) {
     this.now = now;
     this.leaseMs = leaseMs;
     this.command = command;
     this.onChange = onChange;
+    this.storePath = storePath;
     this.sessions = new Map();
     this.targets = new Map();
     this.pending = new Set();
     this.pendingSessions = new Set();
-    this.pendingSessions = new Set();
+    this.loadPersisted();
+  }
+
+  /** Restore exact target ownership; never infer new targets by URL/label. */
+  loadPersisted() {
+    if (!this.storePath || !existsSync(this.storePath)) return;
+    let data;
+    try {
+      data = JSON.parse(readFileSync(this.storePath, "utf8"));
+      if (data.version !== 1 || !Array.isArray(data.sessions))
+        throw Error("Unsupported session registry format.");
+      const seen = new Set();
+      for (const item of data.sessions) {
+        this.checkId(item.browserSessionId);
+        if (typeof item.targetId !== "string" || !TARGET_PATTERN.test(item.targetId) ||
+            seen.has(item.targetId) || this.sessions.has(item.browserSessionId))
+          throw Error("Invalid or duplicate persisted CDP target.");
+        seen.add(item.targetId);
+        const handoff = new HandoffCoordinator({now:this.now,leaseMs:this.leaseMs});
+        const previous = item.handoff || {phase:"idle"};
+        // No lease ID survives a process restart. Any in-flight manual control
+        // must become expired; release/ack may not resume the Agent implicitly.
+        if (previous.requestId) {
+          handoff.state = {
+            phase:"expired",requestId:previous.requestId,
+            agentId:previous.agentId,reason:previous.reason,
+            updatedAt:this.now(),error:"viewer_service_restarted",
+          };
+        }
+        const record = {
+          browserSessionId:item.browserSessionId,targetId:item.targetId,
+          browserContextId:item.browserContextId||null,
+          agentLabel:item.agentLabel||item.browserSessionId,
+          metadata:item.metadata||{},createdAt:item.createdAt||this.now(),
+          url:item.url||"",title:item.title||"",
+          pageClosed:Boolean(item.pageClosed),
+          handoff,
+        };
+        this.sessions.set(record.browserSessionId,record);
+        this.targets.set(record.targetId,record.browserSessionId);
+      }
+    } catch (error) {
+      throw new SessionError(
+        "session_registry_recovery_failed: " + error.message,
+        "session_registry_recovery_failed", 500,
+      );
+    }
+  }
+
+  persist() {
+    if (!this.storePath) return;
+    const data = {version:1,sessions:[...this.sessions.values()].map(s=>({
+      browserSessionId:s.browserSessionId,targetId:s.targetId,
+      browserContextId:s.browserContextId,agentLabel:s.agentLabel,
+      metadata:s.metadata,createdAt:s.createdAt,url:s.url,title:s.title,
+      pageClosed:s.pageClosed,handoff:s.handoff.snapshot(),
+    }))};
+    mkdirSync(dirname(this.storePath),{recursive:true,mode:0o700});
+    const temp=this.storePath + "." + process.pid + ".tmp";
+    writeFileSync(temp,JSON.stringify(data,null,2)+"\n",{mode:0o600});
+    renameSync(temp,this.storePath);
+  }
+
+  changed() {
+    this.persist();
+    this.onChange();
   }
 
   checkId(id) {
@@ -206,7 +275,7 @@ export class BrowserSessionRegistry {
       };
       this.targets.set(targetId, id);
       this.sessions.set(id, record);
-      this.onChange();
+      this.changed();
       return this.publicSession(record);
     } finally {
       this.pending.delete(targetId);
@@ -250,7 +319,7 @@ export class BrowserSessionRegistry {
         session.pageClosed = true;
         session.closedAt = this.now();
         session.handoff.pageClosed();
-        this.onChange();
+        this.changed();
       } else {
         session.url = info.url || "";
         session.title = info.title || "";
@@ -303,7 +372,7 @@ export class BrowserSessionRegistry {
       );
     this.sessions.delete(id);
     this.targets.delete(s.targetId);
-    this.onChange();
+    this.changed();
     return { removed: id };
   }
 }
