@@ -10,6 +10,28 @@ Architecture:
 - A per-conversation single-flight coordinator allocates one pinned CDP Tab per new conversation; sessions use **one existing Chrome default BrowserContext**, sharing cookies and localStorage normally. Neither directory nor human-readable Agent label is an identity.
 - The handoff server only resolves a registered page and never creates tabs. Its request IDs/leases are scoped by browserSessionId/targetId.
 
+## Trusted identity proof (mandatory)
+
+Do not trust a model-chosen conversation ID. The Claude Hook reads the real `session_id` and overwrites **both** `conversationId` and `conversationProof` on each matching MCP call. Both browser and handoff MCP verify a short-lived HMAC signature over the namespace, conversation ID and tool name. Missing, forged or expired proofs fail closed. This is an adapter trust guarantee, not permission to bypass Agent tool approvals.
+
+Provision a shared local secret explicitly (never during plugin installation):
+
+```sh
+mkdir -p ~/.config/herdr-agent-browser
+chmod 700 ~/.config/herdr-agent-browser
+umask 077
+openssl rand -out ~/.config/herdr-agent-browser/conversation-secret 32
+chmod 600 ~/.config/herdr-agent-browser/conversation-secret
+```
+
+Set `HAB_CONVERSATION_SECRET_FILE` to its absolute path in **both** MCP entries' `env` and the Claude Hook command environment. Set `HAB_CONVERSATION_NAMESPACE` to the same value in all three. For example:
+
+```
+HAB_CONVERSATION_SECRET_FILE=/absolute/path/to/conversation-secret HAB_CONVERSATION_NAMESPACE=claude node /path/to/repo/scripts/claude-conversation-hook.mjs
+```
+
+No user Agent config is edited automatically. The signature is bound to the exact tool and valid for a maximum of 120 seconds. A missing Hook or mismatched secret causes denial.
+
 ## Claude opt-in configuration
 
 **Do not install these hooks silently.** Review the script, choose the MCP aliases and add the following to the desired *Claude user or project settings* yourself. The Hook must run for both MCP servers. Example (adjust absolute paths; replace `/path/to/repo`):
@@ -21,7 +43,7 @@ Architecture:
       "matcher": "mcp__herdr_agent_browser__.*|mcp__herdr_browser_handoff__.*",
       "hooks": [{
         "type": "command",
-        "command": "node /path/to/repo/scripts/claude-conversation-hook.mjs"
+        "command": "HAB_CONVERSATION_SECRET_FILE=/absolute/path/to/conversation-secret HAB_CONVERSATION_NAMESPACE=claude node /path/to/repo/scripts/claude-conversation-hook.mjs"
       }]
     }]
   }
@@ -40,7 +62,8 @@ Configure the two MCP entries explicitly and separately (the original v0.5.1 pro
       "args": ["/path/to/repo/scripts/conversation-mcp.mjs"],
       "env": {
         "HAB_CDP_PORT": "19331",
-        "HAB_CONVERSATION_NAMESPACE": "claude"
+        "HAB_CONVERSATION_NAMESPACE": "claude",
+        "HAB_CONVERSATION_SECRET_FILE": "/absolute/path/to/conversation-secret"
       }
     },
     "herdr_browser_handoff": {
@@ -48,14 +71,15 @@ Configure the two MCP entries explicitly and separately (the original v0.5.1 pro
       "args": ["/path/to/repo/scripts/conversation-mcp.mjs", "--handoff"],
       "env": {
         "HAB_CDP_PORT": "19331",
-        "HAB_CONVERSATION_NAMESPACE": "claude"
+        "HAB_CONVERSATION_NAMESPACE": "claude",
+        "HAB_CONVERSATION_SECRET_FILE": "/absolute/path/to/conversation-secret"
       }
     }
   }
 }
 ```
 
-Both MCP processes run continuously. **Every tool input schema supports an optional `conversationId` that the trusted Hook must inject before execution**; no value is cached as the global currently active conversation. For other Agent hosts, the host must inject a trusted `conversationId` for every call and overwrite any model-selected value; an environment variable captured once per MCP launch is insufficient. Do not rely solely on the schema being present to prevent model spoofing. The Hook's user-approved scope and the MCP client determine the trust boundary.
+Both MCP processes run continuously. **Every tool input schema supports an optional `conversationId` and `conversationProof` that the trusted Hook must inject before execution**; no value is cached as the global currently active conversation. For other Agent hosts, the host must inject a trusted `conversationId` for every call and overwrite any model-selected value; an environment variable captured once per MCP launch is insufficient. Do not rely solely on the schema being present to prevent model spoofing. The Hook's user-approved scope and the MCP client determine the trust boundary.
 
 The **browser MCP** proxies the upstream native `agent-browser mcp --tools core` tool catalog, keeping its typed schemas and preserving broad browser-operation support. The proxy removes the model-selectable `session` field, adds an optional adapter-injected `conversationId`, and enforces the *mapped* native `session` when forwarding each tool call. It excludes tab/window/session/profile switching, browser shutdown and other unscoped operations; unreviewed `extraArgs` are rejected. The **handoff MCP** supplies `handoff_status`, `handoff_request`, `handoff_wait`, `handoff_cancel`, also with per-call `conversationId`. Both servers have independent lifetimes but share the same persisted mapping file. Native `agent-browser` 0.39+ currently requires Node.js 24+, while the core Herdr plugin still supports Node.js 20+; install an appropriate runtime where the native MCP is launched. Tools are invoked with the exact mapped native `--session` and `--pin-tab`, never by switching any global session.
 
@@ -72,7 +96,7 @@ The port-scoped mapping is stored in `~/.local/state/herdr-agent-browser/convers
 - Shared-context cookie/account changes and logout affect all conversations on that site.
 - OAuth popups and additional windows lack automatic ownership.
 - This is cooperative routing; users with direct full browser CDP access can bypass per-target controls.
-- A second independent browser-MCP *process* racing to initialize the same conversation is not protected by a cross-process file lock yet. Deploy one shared browser MCP endpoint per Chrome profile and use a stable namespace. The Viewer Registry rejects duplicate claims, but the losing CLI process can leave an unowned blank Tab. This is not hard global concurrency isolation.
+- Multiple browser MCP processes sharing the same local mapping path now use an atomic filesystem directory lock to serialize initialization. Deploy one shared browser MCP endpoint per Chrome profile and use a stable namespace. A crashed writer may leave a stale lock; investigate the original Chrome targets before removing it manually. The lock is for a single local filesystem, not distributed cross-host synchronization. This is not hard global concurrency isolation.
 - The `agent-browser` CLI version and specific `open` response must be checked against the deployed binary. No approval to edit existing Claude settings is implied by this patch.
 
 ## Test plan
