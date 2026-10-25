@@ -1,3 +1,4 @@
+import http from "node:http";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -91,7 +92,20 @@ try{
     ...signed("agent_browser_get_url",{conversationId:"claude-session-A"}),session:"some-other-session",
   }});
   assert(!forged.isError,JSON.stringify(forged));
-  const listing=()=>fetch(url+"/browser/api/sessions").then(r=>r.json());
+  // A fresh socket is essential across Viewer close/relisten. Node 26's
+  // pooled fetch() can reuse a socket from the old server and ECONNRESET.
+  const listing=()=>new Promise((resolve,reject)=>{
+    const req=http.get(url+"/browser/api/sessions",{agent:false},res=>{
+      const parts=[];
+      res.on("data",chunk=>parts.push(chunk));
+      res.on("error",reject);
+      res.on("end",()=>{
+        try { resolve(JSON.parse(Buffer.concat(parts).toString("utf8"))); }
+        catch(error) { reject(error); }
+      });
+    });
+    req.on("error",reject);
+  });
   console.log("STAGE sessions listed");
   const sessions=(await listing()).sessions;
   assert.equal(sessions.length,2);
