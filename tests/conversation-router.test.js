@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { verifyConversationProof } from "../src/conversation-identity.mjs";
 import { sessionIdentity, ConversationRouter } from "../src/conversation-router.mjs";
 
 function fixture(t){
@@ -81,16 +83,24 @@ test("namespace isolates reused conversation IDs",async t=>{
   assert.notEqual(a.targetId,b.targetId);
   assert.equal(f.count(),2);
 });
-test("Claude PreToolUse always overwrites model-chosen identity",()=>{
+test("Claude PreToolUse always overwrites model-chosen identity",t=>{
+  const dir=mkdtempSync(join(tmpdir(),"herdr-hook-"));
+  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const secret=randomBytes(32);
+  const file=join(dir,"secret");
+  writeFileSync(file,secret,{mode:0o600});
   const hook=new URL("../scripts/claude-conversation-hook.mjs",import.meta.url).pathname;
   const input=JSON.stringify({hook_event_name:"PreToolUse",
     tool_name:"mcp__herdr_agent_browser__agent_browser_open",
     session_id:"real-claude-session",tool_input:{conversationId:"malicious-B",url:"https://example.com"}});
-  const p=spawnSync(process.execPath,[hook],{input,encoding:"utf8"});
+  const p=spawnSync(process.execPath,[hook],{input,encoding:"utf8",
+    env:{...process.env,HAB_CONVERSATION_SECRET_FILE:file,HAB_CONVERSATION_NAMESPACE:"claude"}});
   assert.equal(p.status,0,p.stderr);
   const output=JSON.parse(p.stdout);
   assert.equal(output.hookSpecificOutput.updatedInput.conversationId,"real-claude-session");
   assert.equal(output.hookSpecificOutput.updatedInput.url,"https://example.com");
+  verifyConversationProof(output.hookSpecificOutput.updatedInput.conversationProof,secret,
+    "claude","real-claude-session","agent_browser_open");
 });
 test("Claude hook denies missing session ID and ignores unrelated tools",()=>{
   const hook=new URL("../scripts/claude-conversation-hook.mjs",import.meta.url).pathname;
