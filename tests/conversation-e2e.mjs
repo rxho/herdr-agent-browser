@@ -48,7 +48,9 @@ try{
     HAB_BASE_PATH:"/browser",HAB_CONVERSATION_NAMESPACE:"claude-test",
     AGENT_BROWSER_NAMESPACE:"hce"+process.pid,
     AGENT_BROWSER_SOCKET_DIR:join(tmpdir(),"habsock-"+process.pid)};
+  console.log("STAGE starting native MCP proxy");
   const browser=await mcp("browser",env);
+  console.log("STAGE proxy connected");
   const toolList=await browser.listTools();
   const names=new Set(toolList.tools.map(t=>t.name));
   assert(names.has("agent_browser_open")&&names.has("agent_browser_snapshot")&&
@@ -62,10 +64,13 @@ try{
   const missingIdentity=await browser.callTool({name:"agent_browser_get_url",arguments:{}});
   assert(missingIdentity.isError,"Calls without a Hook-injected conversationId must fail closed");
   const handoff=await mcp("handoff",env);
+  console.log("STAGE handoff connected");
   const pageUrl=url+"/browser/demo";
 
   // A -> B -> A within exactly the same long-running MCP connection.
+  console.log("STAGE A open");
   await call(browser,"agent_browser_open",{conversationId:"claude-session-A",url:pageUrl});
+  console.log("STAGE B open");
   await call(browser,"agent_browser_open",{conversationId:"claude-session-B",url:pageUrl});
   assert((await call(browser,"agent_browser_get_url",{conversationId:"claude-session-A"})).includes("/browser/demo"));
   // A model-supplied native session is overridden by the trusted mapped session.
@@ -74,6 +79,7 @@ try{
   }});
   assert(!forged.isError,JSON.stringify(forged));
   const listing=()=>fetch(url+"/browser/api/sessions").then(r=>r.json());
+  console.log("STAGE sessions listed");
   const sessions=(await listing()).sessions;
   assert.equal(sessions.length,2);
   assert.notEqual(sessions[0].targetId,sessions[1].targetId);
@@ -92,6 +98,7 @@ try{
   assert((await b.evaluate(()=>document.cookie)).includes("signed_in=alice"));
   assert.equal(await b.evaluate(()=>localStorage.getItem("login-key")),"shared");
   assert.equal(await b.evaluate(()=>sessionStorage.getItem("private")),null);
+  console.log("STAGE concurrent fill");
   await Promise.all([
     call(browser,"agent_browser_fill",{conversationId:"claude-session-A",selector:"#name",text:"A"}),
     call(browser,"agent_browser_fill",{conversationId:"claude-session-B",selector:"#name",text:"B"}),
@@ -104,6 +111,7 @@ try{
   assert.equal((await listing()).sessions.length,2);
 
   // Independent handoffs: manual control of A doesn't block B.
+  console.log("STAGE handoffs");
   const reqA=JSON.parse(await call(handoff,"handoff_request",
     {conversationId:"claude-session-A",reason:"MFA A"}));
   const reqB=JSON.parse(await call(handoff,"handoff_request",
@@ -129,6 +137,7 @@ try{
   const bstate=await fetch(url+"/browser/api/handoff?browserSessionId="+encodeURIComponent(B.browserSessionId)).then(x=>x.json());
   assert.equal(bstate.phase,"waiting-human");
 
+  console.log("STAGE Viewer restart");
   // Restart only the Viewer service, preserve Chrome and Session mapping.
   await new Promise(ok=>viewer.close(ok));
   viewer=createViewerServer({options,upstream,sessionStorePath});
@@ -140,6 +149,7 @@ try{
   // Unacknowledged handoff is invalidated; it cannot auto-authorize resume.
   assert.equal(afterViewerRestart.find(s=>s.browserSessionId===B.browserSessionId).handoff.phase,"expired");
 
+  console.log("STAGE MCP restart");
   // Stop and restart MCP processes, recover exact pinned A target.
   await Promise.all(clients.map(x=>x.close()));
   clients.length=0;
@@ -148,6 +158,7 @@ try{
   assert.equal((await listing()).sessions.length,2);
 
   // Closed A must fail, never fall back to B.
+  console.log("STAGE tab close");
   await a.close();
   const gone=await restarted.callTool({name:"agent_browser_get_url",
     arguments:{conversationId:"claude-session-A"}});
