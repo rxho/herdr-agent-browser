@@ -1,4 +1,5 @@
 import http from "node:http";
+import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -126,9 +127,11 @@ export function createViewerServer({
   fetchImpl = fetch,
   handoff = new HandoffCoordinator(),
   sessionRegistry,
+  sessionStorePath = null,
 } = {}) {
   const sessions = sessionRegistry || new BrowserSessionRegistry({
     command: (method,params) => browserCommand(upstream,method,params,fetchImpl),
+    storePath: sessionStorePath,
   });
   const policy = [
     "default-src 'self' data: blob:",
@@ -242,6 +245,9 @@ export function createViewerServer({
           default:
             return sendJSON(response, 404, { error: "Unknown handoff action." });
         }
+        // Persist each scoped handoff transition so a Viewer service restart
+        // cannot accidentally turn an old human lease into an Agent resume.
+        if (selected) sessions.changed();
         return sendJSON(response, 200, selected
           ? {...result,browserSessionId:selected.browserSessionId,targetId:selected.targetId} : result);
       } catch (error) {
@@ -363,7 +369,11 @@ export function createViewerServer({
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const options = serverConfig();
-  const server = createViewerServer({ options });
+  const upstream = cdpConfig();
+  const sessionStorePath = process.env.HAB_SESSION_STORE ||
+    path.join(homedir(), ".local/state/herdr-agent-browser",
+      "sessions-" + options.port + "-" + upstream.port + ".json");
+  const server = createViewerServer({ options, upstream, sessionStorePath });
   server.listen(options.port, options.host, () => {
     console.log(`Agent Browser listening on http://${options.host}:${options.port}${options.basePath}`);
   });
