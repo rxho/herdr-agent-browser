@@ -2,6 +2,25 @@
 
 All notable changes are recorded here. This project remains experimental.
 
+## [0.6.0] - 2026-10-25
+
+### Added
+- Conversation-scoped browser and handoff MCP tools with a trusted `conversationId` injected on every tool invocation.
+- Claude PreToolUse `session_id` Hook adapter with mandatory private HMAC identity proof; no model-selected session identity.
+- Transparent upstream agent-browser MCP core tool proxy forcing the mapped native `session` and denying unscoped tab/session/close operations.
+- Cross-process local mapping lock plus single-flight in-process allocation; stable A→B→A resume and compaction.
+- Persistent Session→target Viewer registry, exact target revalidation and fail-closed interrupted human leases on Viewer restart.
+- Identity, concurrency, persistence and real Chrome MCP end-to-end tests.
+
+### Compatibility
+- Original v0.5.1 single-process MCP and Viewer behaviors remain available.
+- No changes to user Claude configurations or installation on local computers.
+- New mode is opt-in and requires an explicitly configured trusted Hook, private secret, two MCP entries and agent-browser 0.39+ on Node 24+.
+
+### Limitations
+- Cooperative isolation only. Direct browser-level CDP clients can bypass scope.
+- OAuth popups are not automatically assigned; a restarted Chrome with new target IDs requires deliberate recovery.
+
 ## [0.5.1] - 2026-10-25
 
 ### Fixed
