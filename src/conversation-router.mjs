@@ -14,7 +14,8 @@ export function sessionIdentity(conversationId, namespace = "claude") {
 
 /** Single-flight allocation is per conversation, not a mutable active-session selector. */
 export class ConversationRouter {
-  constructor({ allocate, lookup, storePath = join(homedir(), ".local/state/herdr-agent-browser/conversations.json") } = {}) {
+  constructor({ allocate, lookup, storePath = join(homedir(), ".local/state/herdr-agent-browser",
+    "conversations-" + (process.env.HAB_PORT||"7931") + "-" + (process.env.HAB_CDP_PORT||"19331") + ".json") } = {}) {
     this.allocate = allocate;
     this.lookup = lookup;
     this.storePath = storePath;
