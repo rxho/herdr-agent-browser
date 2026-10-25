@@ -35,7 +35,7 @@ export async function startConversationBrowserProxy({
   const upstream=new StdioClientTransport({
     command:nativeBinary,
     args:["mcp","--tools","core"],
-    env:{...env,AGENT_BROWSER_CDP:String(cdpPort)},
+    env:{...env,AGENT_BROWSER_CDP:String(cdpPort),AGENT_BROWSER_PIN_TAB:"true"},
     stderr:"inherit",
   });
   await native.connect(upstream);
