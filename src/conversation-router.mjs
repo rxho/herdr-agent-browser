@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, renameSync, rmdirSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 
 const VALID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 export function sessionIdentity(conversationId, namespace = "claude") {
@@ -45,24 +46,60 @@ export class ConversationRouter {
     this.pending.set(id,work);
     try{return await work;}finally{this.pending.delete(id);}
   }
-  async resolveOnce(id,conversationId,namespace,create){
-    // Pick up the browser MCP writer from the other long-running handoff process.
-    this.records=this.load();
-    const record=this.records.get(id);
-    if(record){
-      const live=await this.lookup(id);
-      if(!live || live.targetId!==record.targetId || live.pageClosed)
-        throw Error("session_page_closed_or_unrecoverable: persisted target must be reconciled; no fallback or new tab.");
-      return {...live,browserSessionId:id};
+  /**
+   * An atomic local-filesystem directory lock serializes initialization across
+   * multiple MCP processes sharing the same Chrome profile and mapping store.
+   * Fail closed on a stale lock; never steal it automatically.
+   */
+  async withAllocationLock(operation) {
+    const lock = this.storePath + ".lock";
+    mkdirSync(dirname(lock), { recursive: true, mode: 0o700 });
+    const deadline = Date.now() + 60_000;
+    while (true) {
+      try {
+        mkdirSync(lock, { mode: 0o700 });
+        break;
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+        if (Date.now() >= deadline)
+          throw Error("conversation_lock_timeout: allocation lock is held or stale; investigate before manual recovery.");
+        await delay(125);
+      }
     }
-    // A service may have restarted while Chrome was kept alive.
-    if(!create)throw Error("session_not_initialized: initialize the browser conversation before handoff.");
-    const live=await this.lookup(id);
-    if(live)throw Error("unverified_registration: target exists without persisted ownership; refusing to claim.");
-    const allocated=await this.allocate({browserSessionId:id,agentLabel:namespace+":"+conversationId.slice(0,12),metadata:{conversationId}});
-    if(!allocated?.targetId)throw Error("Session allocator returned no CDP target.");
-    this.records.set(id,{browserSessionId:id,targetId:allocated.targetId,namespace,conversationId});
-    this.save();
-    return allocated;
+    try {
+      return await operation();
+    } finally {
+      rmdirSync(lock);
+    }
+  }
+  async resolveOnce(id, conversationId, namespace, create) {
+    return this.withAllocationLock(async () => {
+      this.records = this.load();
+      const record = this.records.get(id);
+      if (record) {
+        const live = await this.lookup(id);
+        if (!live || live.targetId !== record.targetId || live.pageClosed)
+          throw Error("session_page_closed_or_unrecoverable: persisted target must be reconciled; no fallback or new tab.");
+        return {...live, browserSessionId:id};
+      }
+      // Never create on the handoff side. The browser MCP is the sole allocator.
+      if (!create)
+        throw Error("session_not_initialized: initialize the browser conversation before handoff.");
+      const live = await this.lookup(id);
+      if (live)
+        throw Error("unverified_registration: target exists without persisted ownership; refusing to claim.");
+      const allocated = await this.allocate({
+        browserSessionId:id,
+        agentLabel:namespace+":"+conversationId.slice(0,12),
+        metadata:{conversationId},
+      });
+      if (!allocated?.targetId)
+        throw Error("Session allocator returned no CDP target.");
+      this.records.set(id,{
+        browserSessionId:id,targetId:allocated.targetId,namespace,conversationId,
+      });
+      this.save();
+      return allocated;
+    });
   }
 }
