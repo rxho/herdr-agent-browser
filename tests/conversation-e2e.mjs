@@ -64,11 +64,17 @@ try{
     names.has("agent_browser_click")&&names.has("agent_browser_fill"));
   assert(!names.has("agent_browser_close"));
   assert(!names.has("agent_browser_tab_select"));
+  assert(!names.has("agent_browser_tools_profiles"));
   const openSchema=toolList.tools.find(t=>t.name==="agent_browser_open").inputSchema;
   assert(openSchema.properties.conversationId);
   assert(openSchema.properties.conversationProof);
   assert(!openSchema.properties.session);
+  assert(!openSchema.properties.namespace);
+  assert(!openSchema.properties.restore);
+  assert(!openSchema.properties.extraArgs);
   assert(!openSchema.required?.includes("conversationId"));
+  const clickSchema=toolList.tools.find(t=>t.name==="agent_browser_click").inputSchema;
+  assert(!clickSchema.properties.newTab);
   const missingIdentity=await browser.callTool({name:"agent_browser_get_url",arguments:{}});
   assert(missingIdentity.isError,"Calls without a Hook-injected conversationId must fail closed");
   const forgedProof=await browser.callTool({name:"agent_browser_get_url",arguments:{
@@ -91,6 +97,21 @@ try{
     ...signed("agent_browser_get_url",{conversationId:"claude-session-A"}),session:"some-other-session",
   }});
   assert(!forged.isError,JSON.stringify(forged));
+  // Even a signed call cannot override the selected native daemon, restore
+  // state, spawn a tab, or smuggle additional CLI flags into the MCP proxy.
+  for (const [name,options] of [
+    ["agent_browser_get_url",{namespace:"other-daemon"}],
+    ["agent_browser_click",{selector:"#name",newTab:true}],
+    ["agent_browser_open",{url:pageUrl,restore:"foreign-state"}],
+    ["agent_browser_get_url",{extraArgs:["--session","foreign"]}],
+    ["agent_browser_open",{url:pageUrl,headed:true}],
+  ]) {
+    const result=await browser.callTool({name,arguments:signed(name,{
+      conversationId:"claude-session-A",...options,
+    })});
+    assert(result.isError,"Unscoped option unexpectedly accepted: "+JSON.stringify(options));
+    assert(JSON.stringify(result).includes("restricted_native_option"));
+  }
   const listing=()=>fetch(url+"/browser/api/sessions").then(r=>r.json());
   console.log("STAGE sessions listed");
   const sessions=(await listing()).sessions;
