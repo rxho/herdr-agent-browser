@@ -16,6 +16,11 @@ jobs:
           CHROME_BIN="$(command -v google-chrome || command -v chromium)"
           CHROME_BIN="$CHROME_BIN" npm run test:e2e
 
+      - name: Node 24 for native agent-browser (core plugin still checked on Node 22)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
       - name: Conversation-scoped MCP E2E (real Chrome)
         run: |
           npm install --no-save --no-package-lock agent-browser@0.39.2
