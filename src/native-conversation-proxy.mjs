@@ -5,15 +5,33 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { readIdentitySecret, verifyConversationProof } from "./conversation-identity.mjs";
 
-// These tools can switch to other targets or close the entire browser.
-// The proxy owns the Session→target mapping, not the caller.
-const UNSCOPED_TOOLS = /^(agent_browser_(?:tab_|window_|session_|profile_|close$|connect$|launch$))/;
+// Review new native core tools before exposing them. A native 'session'
+// parameter alone does not prove that a tool stays on the pinned CDP target.
+const AUDITED_TOOLS = new Set([
+  "agent_browser_open","agent_browser_read","agent_browser_snapshot",
+  "agent_browser_click","agent_browser_fill","agent_browser_type",
+  "agent_browser_press","agent_browser_check","agent_browser_uncheck",
+  "agent_browser_select","agent_browser_scroll","agent_browser_wait_ms",
+  "agent_browser_wait_for_selector","agent_browser_wait_for_text",
+  "agent_browser_wait_for_load","agent_browser_screenshot",
+  "agent_browser_get_text","agent_browser_get_url","agent_browser_get_title",
+  "agent_browser_eval","agent_browser_back","agent_browser_forward",
+  "agent_browser_reload",
+]);
+
+// Native flags that can mutate daemon/global configuration, restore a
+// different session, or spawn/switch tabs must never come from the model.
+const RESTRICTED_OPTIONS = new Set([
+  "extraArgs","namespace","newTab",
+  "restore","restoreSave","restoreCheckFn","restoreCheckText","restoreCheckUrl",
+  "headed","webgpu","webmcp","allowedDomains","caCert","clearCaCert",
+  "useSystemCa","idleTimeout",
+]);
 
 function exposed(tool) {
-  if (UNSCOPED_TOOLS.test(tool.name)) return false;
   const original = tool.inputSchema || { type:"object", properties:{} };
-  const props = {...(original.properties||{})};
-  delete props.session;
+  const props = Object.fromEntries(Object.entries(original.properties||{})
+    .filter(([key])=>key!=="session"&&!RESTRICTED_OPTIONS.has(key)));
   props.conversationProof = {type:"string",description:"A short-lived host-signed proof injected by the trusted adapter."};
   props.conversationId = {
     type:"string",
@@ -22,7 +40,7 @@ function exposed(tool) {
   return {...tool,
     description:(tool.description||"")+" [Conversation-scoped; trusted adapter injects conversationId.]",
     inputSchema:{...original,properties:props,
-      required:(original.required||[]).filter(x=>x!=="session"&&x!=="conversationId")},
+      required:(original.required||[]).filter(x=>x!=="session"&&x!=="conversationId"&&!RESTRICTED_OPTIONS.has(x))},
   };
 }
 
@@ -46,7 +64,7 @@ export async function startConversationBrowserProxy({
   // A tool without an explicit native session argument could run against
   // the daemon's ambient/default page and must not be exposed.
   const allowedTools=nativeTools.tools.filter(t=>
-    !UNSCOPED_TOOLS.test(t.name) &&
+    AUDITED_TOOLS.has(t.name) &&
     Object.prototype.hasOwnProperty.call(t.inputSchema?.properties||{},"session")
   );
   if(allowedTools.length<5)throw Error("native MCP lacks required per-call session routing");
@@ -66,10 +84,10 @@ export async function startConversationBrowserProxy({
       delete args.conversationId;
       delete args.conversationProof;
       delete args.session;
-      // Model-supplied CLI flags can bypass the forced session or tab pin.
-      // Full extraArgs parity needs a separate audited allowlist.
-      if(args.extraArgs?.length)throw Error("extraArgs_disabled_in_conversation_mode");
-      delete args.extraArgs;
+      for (const option of RESTRICTED_OPTIONS) {
+        if (Object.prototype.hasOwnProperty.call(args,option))
+          throw Error("restricted_native_option: "+option);
+      }
       const mapped=await router.resolve(id,namespace,{create:true});
       if(mapped.pageClosed)throw Error("session_page_closed");
       return await native.callTool({name,arguments:{
