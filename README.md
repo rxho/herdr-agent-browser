@@ -53,6 +53,10 @@ The installer uses `@puppeteer/browsers`, pinned to `155.0.8059.79` by default, 
 
 **Linux requirements:** browser archives do not include all OS libraries. Install the distribution's required Chrome libraries separately. Ubuntu 23.10+ may restrict downloaded Chrome for Testing binaries from creating sandbox user namespaces through AppArmor. If Chrome reports `No usable sandbox`, prefer a distro-packaged Chrome with an appropriate AppArmor profile (`HAB_CHROME_BINARY=/usr/bin/google-chrome`) or have an administrator create a restrictive AppArmor profile granting the browser userns permission. The plugin does not automatically append `--no-sandbox` or weaken system-wide sandbox policy.
 
+## Conversation-level routing within one Claude CLI (development branch)
+
+The opt-in [conversation-scoped MCP adapter](docs/conversation-scoped-mcp.md) uses Claude `PreToolUse` Hook `session_id` to **overwrite** `conversationId` on every browser and handoff tool call. A single long-running MCP server can then serve A → B → resumed A without switching any global "current conversation". Its Session→CDP target mapping is persistent; Chrome's default BrowserContext remains shared. Hooks and Agent configuration are **not installed automatically**. This feature is under acceptance testing and is not part of the v0.5.1 installed plugin.
+
 ## Shared-login multi-session mode (v0.5)
 
 Several Claude/Codex/other Agents can operate separate pinned Tabs in **one Chrome default BrowserContext**, sharing normal website cookies, login state and localStorage. Each Agent's handoff request and human lease are bound to its own CDP target.
