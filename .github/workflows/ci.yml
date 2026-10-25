@@ -1,5 +1,7 @@
 name: CI
 on: [push, pull_request]
+permissions:
+  contents: write
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -27,3 +29,15 @@ jobs:
           CHROME_BIN="$(command -v google-chrome || command -v chromium)" \
           HAB_AGENT_BROWSER_BINARY="$PWD/node_modules/.bin/agent-browser" \
           timeout 180s node tests/conversation-e2e.mjs
+
+      - name: Publish v0.6.0 pre-release after green main CI
+        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release v0.6.0]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create v0.6.0 \
+            --target "${{ github.sha }}" \
+            --title "v0.6.0 — Conversation-scoped MCP and shared browser sessions" \
+            --notes-file docs/v0.6.0-release-notes.md \
+            --prerelease
