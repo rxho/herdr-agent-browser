@@ -37,14 +37,16 @@ export class ConversationRouter {
     writeFileSync(temp,JSON.stringify({version:1,entries:[...this.records.values()]},null,2)+"\n",{mode:0o600});
     renameSync(temp,this.storePath);
   }
-  async resolve(conversationId,namespace="claude"){
+  async resolve(conversationId,namespace="claude",{create=true}={}){
     const id=sessionIdentity(conversationId,namespace);
     if(this.pending.has(id))return this.pending.get(id);
-    const work=this.resolveOnce(id,conversationId,namespace);
+    const work=this.resolveOnce(id,conversationId,namespace,create);
     this.pending.set(id,work);
     try{return await work;}finally{this.pending.delete(id);}
   }
-  async resolveOnce(id,conversationId,namespace){
+  async resolveOnce(id,conversationId,namespace,create){
+    // Pick up the browser MCP writer from the other long-running handoff process.
+    this.records=this.load();
     const record=this.records.get(id);
     if(record){
       const live=await this.lookup(id);
@@ -53,6 +55,7 @@ export class ConversationRouter {
       return {...live,browserSessionId:id};
     }
     // A service may have restarted while Chrome was kept alive.
+    if(!create)throw Error("session_not_initialized: initialize the browser conversation before handoff.");
     const live=await this.lookup(id);
     if(live)throw Error("unverified_registration: target exists without persisted ownership; refusing to claim.");
     const allocated=await this.allocate({browserSessionId:id,agentLabel:namespace+":"+conversationId.slice(0,12),metadata:{conversationId}});
