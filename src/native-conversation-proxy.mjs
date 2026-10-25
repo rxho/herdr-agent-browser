@@ -40,7 +40,13 @@ export async function startConversationBrowserProxy({
   });
   await native.connect(upstream);
   const nativeTools=await native.listTools();
-  const allowedTools=nativeTools.tools.filter(t=>!UNSCOPED_TOOLS.test(t.name));
+  // A tool without an explicit native session argument could run against
+  // the daemon's ambient/default page and must not be exposed.
+  const allowedTools=nativeTools.tools.filter(t=>
+    !UNSCOPED_TOOLS.test(t.name) &&
+    Object.prototype.hasOwnProperty.call(t.inputSchema?.properties||{},"session")
+  );
+  if(allowedTools.length<5)throw Error("native MCP lacks required per-call session routing");
   const allowed=new Set(allowedTools.map(t=>t.name));
   const proxy=new Server({name:"herdr-conversation-browser",version:"0.6.0"},
     {capabilities:{tools:{}}});
