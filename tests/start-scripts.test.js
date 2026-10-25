@@ -30,7 +30,7 @@ test("Herdr Bash lifecycle and status actions work with a non-root base path", a
 
   const status = run("status.sh");
   assert.equal(status.status,0,status.stderr);
-  assert.equal(JSON.parse(status.stdout).version,"0.5.1");
+  assert.equal(JSON.parse(status.stdout).version,"0.6.0");
   assert.equal((await fetch(`http://127.0.0.1:${port}/api/health`)).status,404);
   assert.equal((await fetch(`http://127.0.0.1:${port}/browser/api/health`)).status,200);
 });

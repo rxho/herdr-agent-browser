@@ -4,7 +4,7 @@ A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative
 
 Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.5.1.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
+> **Experimental — v0.6.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
 ## Quick start
 
@@ -52,6 +52,10 @@ herdr plugin action invoke rxho.agent-browser.install-browser
 The installer uses `@puppeteer/browsers`, pinned to `155.0.8059.79` by default, and reuses an existing installation on subsequent invocations. The downloaded executable is discovered automatically, along with system Chrome and supported Puppeteer/Playwright caches. An explicitly set `HAB_CHROME_BINARY` takes priority. On Linux hosts with AppArmor's restricted unprivileged user namespaces, the launcher prefers an available distro-profiled system Chrome over downloaded Chrome for Testing; use `HAB_CHROME_BINARY` to explicitly select a permitted alternate executable.
 
 **Linux requirements:** browser archives do not include all OS libraries. Install the distribution's required Chrome libraries separately. Ubuntu 23.10+ may restrict downloaded Chrome for Testing binaries from creating sandbox user namespaces through AppArmor. If Chrome reports `No usable sandbox`, prefer a distro-packaged Chrome with an appropriate AppArmor profile (`HAB_CHROME_BINARY=/usr/bin/google-chrome`) or have an administrator create a restrictive AppArmor profile granting the browser userns permission. The plugin does not automatically append `--no-sandbox` or weaken system-wide sandbox policy.
+
+## Conversation-level routing within one Claude CLI (v0.6.0, opt-in)
+
+The opt-in [conversation-scoped MCP adapter](docs/conversation-scoped-mcp.md) uses Claude `PreToolUse` Hook `session_id` to **overwrite** `conversationId` on every browser and handoff tool call. A single long-running MCP server can then serve A → B → resumed A without switching any global "current conversation". Its Session→CDP target mapping is persistent; Chrome's default BrowserContext remains shared. Hooks and Agent configuration are **not installed automatically**. This feature ships as an opt-in v0.6.0 experimental feature. No existing Claude/Codex configuration is changed by updating the plugin. A trusted Hook, a private identity secret and the two MCP entrypoints must be configured deliberately; see the guide for migration.
 
 ## Shared-login multi-session mode (v0.5)
 
