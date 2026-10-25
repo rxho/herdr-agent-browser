@@ -15,7 +15,9 @@ const port=String(process.env.HAB_CDP_PORT||19331);
 const binary=process.env.HAB_AGENT_BROWSER_BINARY||"agent-browser";
 const namespace=process.env.HAB_CONVERSATION_NAMESPACE||"claude";
 const mode=process.argv.includes("--handoff")?"handoff":"browser";
-const schema={conversationId:z.string().min(1).max(128)};
+// Optional in the advertised schema so the LLM need not invent an identity.
+// Required on the wire: a trusted client Hook must supply it on every call.
+const schema={conversationId:z.string().min(1).max(128).optional()};
 async function api(method,route,body){
   const resp=await fetch(new URL(route,handoffUrl),{
     method,headers:body?{"content-type":"application/json"}:{},
