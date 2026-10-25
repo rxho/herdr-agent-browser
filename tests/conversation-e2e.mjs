@@ -49,6 +49,18 @@ try{
     AGENT_BROWSER_NAMESPACE:"hce"+process.pid,
     AGENT_BROWSER_SOCKET_DIR:join(tmpdir(),"habsock-"+process.pid)};
   const browser=await mcp("browser",env);
+  const toolList=await browser.listTools();
+  const names=new Set(toolList.tools.map(t=>t.name));
+  assert(names.has("agent_browser_open")&&names.has("agent_browser_snapshot")&&
+    names.has("agent_browser_click")&&names.has("agent_browser_fill"));
+  assert(!names.has("agent_browser_close"));
+  assert(!names.has("agent_browser_tab_select"));
+  const openSchema=toolList.tools.find(t=>t.name==="agent_browser_open").inputSchema;
+  assert(openSchema.properties.conversationId);
+  assert(!openSchema.properties.session);
+  assert(!openSchema.required?.includes("conversationId"));
+  const missingIdentity=await browser.callTool({name:"agent_browser_get_url",arguments:{}});
+  assert(missingIdentity.isError,"Calls without a Hook-injected conversationId must fail closed");
   const handoff=await mcp("handoff",env);
   const pageUrl=url+"/browser/demo";
 
@@ -56,6 +68,11 @@ try{
   await call(browser,"agent_browser_open",{conversationId:"claude-session-A",url:pageUrl});
   await call(browser,"agent_browser_open",{conversationId:"claude-session-B",url:pageUrl});
   assert((await call(browser,"agent_browser_get_url",{conversationId:"claude-session-A"})).includes("/browser/demo"));
+  // A model-supplied native session is overridden by the trusted mapped session.
+  const forged=await browser.callTool({name:"agent_browser_get_url",arguments:{
+    conversationId:"claude-session-A",session:"some-other-session",
+  }});
+  assert(!forged.isError,JSON.stringify(forged));
   const listing=()=>fetch(url+"/browser/api/sessions").then(r=>r.json());
   const sessions=(await listing()).sessions;
   assert.equal(sessions.length,2);
