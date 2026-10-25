@@ -46,7 +46,8 @@ try{
   const url="http://127.0.0.1:"+port;
   const env={HAB_CDP_PORT:String(cdPort),HAB_URL:url,
     HAB_BASE_PATH:"/browser",HAB_CONVERSATION_NAMESPACE:"claude-test",
-    AGENT_BROWSER_NAMESPACE:"hce"+process.pid,\n    AGENT_BROWSER_SOCKET_DIR:join(tmpdir(),"habsock-"+process.pid)};
+    AGENT_BROWSER_NAMESPACE:"hce"+process.pid,
+    AGENT_BROWSER_SOCKET_DIR:join(tmpdir(),"habsock-"+process.pid)};
   const browser=await mcp("browser",env);
   const handoff=await mcp("handoff",env);
   const pageUrl=url+"/browser/demo";
