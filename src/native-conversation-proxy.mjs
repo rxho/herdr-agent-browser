@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { readIdentitySecret, verifyConversationProof } from "./conversation-identity.mjs";
 
 // These tools can switch to other targets or close the entire browser.
 // The proxy owns the Session→target mapping, not the caller.
@@ -13,6 +14,7 @@ function exposed(tool) {
   const original = tool.inputSchema || { type:"object", properties:{} };
   const props = {...(original.properties||{})};
   delete props.session;
+  props.conversationProof = {type:"string",description:"A short-lived host-signed proof injected by the trusted adapter."};
   props.conversationId = {
     type:"string",
     description:"Host-injected conversation ID. The Claude PreToolUse hook overwrites this field from its own session_id on every call. Never generate or select it in the model.",
@@ -31,6 +33,7 @@ export async function startConversationBrowserProxy({
   cdpPort="19331",
   env=process.env,
 }={}) {
+  const identitySecret=readIdentitySecret(env);
   const native=new Client({name:"herdr-conversation-native-gateway",version:"0.6.0"});
   const upstream=new StdioClientTransport({
     command:nativeBinary,
@@ -59,7 +62,9 @@ export async function startConversationBrowserProxy({
       if(!allowed.has(name))throw Error("unsupported_or_unscoped_tool: "+name);
       const args={...(request.params.arguments||{})};
       const id=args.conversationId;
+      verifyConversationProof(args.conversationProof,identitySecret,namespace,id,name);
       delete args.conversationId;
+      delete args.conversationProof;
       delete args.session;
       // Model-supplied CLI flags can bypass the forced session or tab pin.
       // Full extraArgs parity needs a separate audited allowlist.
