@@ -55,6 +55,6 @@ The current implementation is an **experimental local evaluation build**.
 
 The handoff protocol is **cooperative**. A coding agent that does not use it may still issue CDP commands during human input. The Viewer enforces one manual control lease **per registered Session target**, not a single global lease. These leases do not restrict external CDP clients. An expired lease does not automatically allow a waiting Agent to continue.
 
-Ovis integration is currently URL/iframe based. There is no native Ovis extension or automatic association between a Herdr Pane and a browser CDP target.
+Ovis integration is currently URL/iframe based. The optional patch can open a plugin-emitted Viewer URL, including a pane-scoped `?session=` deep link when the Agent launcher recorded `HAB_PANE_ID` (and, if needed, `HAB_CONVERSATION_ID`) on the Registry entry. There is still no native Ovis extension, and the plugin does not inject an Ovis More-menu button.
 
 The repository is public as an experimental pre-release. Do not treat the above unchecked areas as completed production guarantees.

@@ -4,7 +4,7 @@ A lightweight Chrome CDP viewer for [Herdr](https://herdr.dev), with cooperative
 
 Herdr Agent Browser provides a browser session viewer alongside Herdr's persistent agent sessions. It uses the upstream [`@agent-infra/browser-ui`](https://github.com/web-infra-dev/agent-browser-sdk) package for browser rendering and interaction and can be opened from [Ovis](https://github.com/devswha/ovis), another Web UI, or a standalone browser tab.
 
-> **Experimental — v0.6.0.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
+> **Experimental — v0.6.1.** Local CDP and real mouse/keyboard operations have been exercised in an isolated Chrome. The handoff protocol is cooperative: it does not suspend arbitrary coding-agent processes. See [release readiness](docs/release-readiness.md).
 
 ## Quick start
 
@@ -161,10 +161,13 @@ For integrations that need separate phases, the CLI also supports `request`, `wa
 
 Ovis continues to manage Herdr sessions, prompts and approvals. Herdr Agent Browser runs as a separate plugin service on port `7931`.
 
-The plugin supplies two integration actions:
+The plugin supplies three integration actions:
 
 - **Open Agent Browser link pane:** supported by existing Ovis releases; opens a Herdr terminal Pane containing an OSC 8 hyperlink. Clicking it opens the browser in Ovis's Web Panel when local framing is permitted and Web Links is configured for Panel.
-- **Open Agent Browser in Ovis:** emits a structured web-panel URL understood by the optional [Ovis integration patch](integrations/ovis/README.md). With that patch, Ovis automatically discovers the plugin and displays a browser entry in its menu; clicking it opens the built-in Web Panel.
+- **Open Agent Browser in Ovis:** emits a structured web-panel URL understood by the optional [Ovis integration patch](integrations/ovis/README.md). Run it from the command palette to open the Viewer with its Session selector. The plugin does not inject a More-menu button.
+- **Open current Session in Agent Browser:** pane-scoped. When the invoking pane has a unique open browser Tab, it opens `?session=<browserSessionId>`. Unbound, closed, or ambiguous panes emit no URL.
+
+Pane association requires the Agent launcher to expose `HAB_PANE_ID` (and, when one pane hosts several conversations, `HAB_CONVERSATION_ID`) to both MCP servers. Without that metadata the Viewer still works from its own URL or the global action.
 
 **The Ovis extension has not been merged upstream.** Installing this plugin does not silently patch or replace Ovis. The unmodified client retains the link-pane fallback.
 

@@ -22,7 +22,10 @@ let lastHandoff = { phase: "idle" };
 let sessions = [],
   selectedSessionId = null,
   selectedTargetId = null;
-let preferredId = new URL(location.href).searchParams.get("session");
+const initialParameters = new URL(location.href).searchParams;
+let preferredId = initialParameters.has("session")
+  ? initialParameters.get("session")
+  : null;
 
 async function api(path, body) {
   const response = await fetch(resource(path), {
@@ -39,6 +42,9 @@ async function api(path, body) {
 }
 const selected = () =>
   sessions.find((s) => s.browserSessionId === selectedSessionId) || null;
+const selectionUnavailable = () =>
+  preferredId !== null &&
+  (selectedSessionId !== preferredId || !selected() || selected().pageClosed);
 const scoped = () => {
   const s = selected();
   return s
@@ -53,7 +59,7 @@ const handoffUrl = () => {
   );
 };
 function activeMatches() {
-  if (!browserUI) return false;
+  if (!browserUI || selectionUnavailable()) return false;
   if (!selectedSessionId) return true;
   const tab = browserUI.browser.getActiveTab();
   return (
@@ -75,30 +81,37 @@ function render() {
   viewer.dataset.sessionTargetId = selectedTargetId || "";
   viewer.dataset.leaseSessionId = leaseSessionId || "";
   const s = selected();
-  const human = ownsSelectedLease() && activeMatches() && !s?.pageClosed;
+  const unavailable = selectionUnavailable();
+  viewer.hidden = unavailable;
+  const human =
+    !unavailable && ownsSelectedLease() && activeMatches() && !s?.pageClosed;
   viewer.inert = !human;
   takeoverButton.textContent = human ? "Release control" : "Take control";
   takeoverButton.setAttribute("aria-pressed", String(human));
   takeoverButton.disabled =
+    unavailable ||
     Boolean(s?.pageClosed) ||
     lastHandoff.phase === "expired" ||
     lastHandoff.phase === "released" ||
     (lastHandoff.phase === "human-control" && !human) ||
     Boolean(leaseId && !ownsSelectedLease());
-  textInput.disabled = !human || !browserUI;
-  sendTextButton.disabled = !human || !browserUI;
-  mode.textContent = human
-    ? lastHandoff.coordinated
-      ? "Agent requested handoff. Manual input enabled."
-      : "Manual input enabled. Agent activity is NOT paused."
-    : s?.pageClosed
-      ? "Session page closed. No automatic Tab fallback."
-      : leaseId && !ownsSelectedLease()
-        ? "Another Session is held by this viewer; reselect it to release."
-        : "Watch mode. Viewer input disabled. Session isolation is cooperative.";
+  textInput.disabled = unavailable || !human || !browserUI;
+  sendTextButton.disabled = unavailable || !human || !browserUI;
+  mode.textContent = unavailable
+    ? "Requested Session unavailable. No automatic Session or legacy fallback."
+    : human
+      ? lastHandoff.coordinated
+        ? "Agent requested handoff. Manual input enabled."
+        : "Manual input enabled. Agent activity is NOT paused."
+      : s?.pageClosed
+        ? "Session page closed. No automatic Tab fallback."
+        : leaseId && !ownsSelectedLease()
+          ? "Another Session is held by this viewer; reselect it to release."
+          : "Watch mode. Viewer input disabled. Session isolation is cooperative.";
   const { phase, reason, agentId, coordinated } = lastHandoff;
-  handoffLabel.textContent =
-    phase === "waiting-human"
+  handoffLabel.textContent = unavailable
+    ? ""
+    : phase === "waiting-human"
       ? `Action requested by ${agentId || "agent"}: ${reason || "Human input required"}`
       : phase === "human-control" && coordinated
         ? "Human handoff in progress"
@@ -107,38 +120,68 @@ function render() {
           : phase === "expired"
             ? "Lease expired or page closed. Agent must not resume automatically."
             : "";
-  sessionDetails.textContent = s
-    ? `${s.agentLabel} · ${s.status} · ${s.title || s.url || "about:blank"} · target ${s.targetId.slice(0, 12)}…`
-    : "Legacy browser view · unassigned tabs (single-session compatibility)";
+  sessionDetails.textContent = unavailable
+    ? `Requested browser Session ${preferredId || "(empty)"} is unavailable. Select an available Session explicitly.`
+    : s
+      ? `${s.agentLabel} · ${s.status} · ${s.title || s.url || "about:blank"} · target ${s.targetId.slice(0, 12)}…`
+      : "Legacy browser view · unassigned tabs (single-session compatibility)";
 }
 function updateOptions() {
-  const prior = sessionSelector.value;
   const data = sessions.length ? sessions : [];
+  const preferred = data.find(
+    (session) =>
+      session.browserSessionId === preferredId && !session.pageClosed,
+  );
   sessionSelector.replaceChildren();
   if (!data.length) {
-    const option = new Option("Legacy · shared browser", "legacy");
-    sessionSelector.add(option);
-    selectedSessionId = null;
-    selectedTargetId = null;
-    sessionSelector.value = "legacy";
+    if (preferredId !== null) {
+      const option = new Option("Requested Session unavailable", "");
+      option.disabled = true;
+      sessionSelector.add(option);
+      selectedSessionId = preferredId;
+      selectedTargetId = null;
+      sessionSelector.value = "";
+    } else {
+      const option = new Option("Legacy · shared browser", "legacy");
+      sessionSelector.add(option);
+      selectedSessionId = null;
+      selectedTargetId = null;
+      sessionSelector.value = "legacy";
+    }
   } else {
     for (const session of data) {
       const label = `${session.agentLabel} · ${session.pageClosed ? "Page closed" : session.handoff.phase}`;
       sessionSelector.add(new Option(label, session.browserSessionId));
     }
-    if (
+    if (preferredId !== null && !preferred) {
+      const option = new Option("Requested Session unavailable", "");
+      option.disabled = true;
+      sessionSelector.add(option, 0);
+      selectedSessionId = preferredId;
+    } else if (
       !selectedSessionId ||
       !data.some((s) => s.browserSessionId === selectedSessionId)
     ) {
-      selectedSessionId = data.some((s) => s.browserSessionId === preferredId)
-        ? preferredId
-        : data[0].browserSessionId;
+      selectedSessionId =
+        preferredId !== null ? preferredId : data[0].browserSessionId;
     }
-    sessionSelector.value = selectedSessionId;
-    selectedTargetId = selected().targetId;
+    sessionSelector.value = selectionUnavailable() ? "" : selectedSessionId;
+    selectedTargetId = selectionUnavailable()
+      ? null
+      : selected()?.targetId || null;
   }
   sessionSelector.disabled = data.length === 0;
   render();
+}
+async function disconnectBrowserUI() {
+  if (!browserUI) return;
+  // Upstream BrowserUI.destroy() closes real CDP targets. Disconnect only this
+  // Viewer client; Agent-owned Tabs must survive selection changes/reconnects.
+  const prior = browserUI;
+  browserUI = null;
+  prior.browser.isIntentionalDisconnect = true;
+  await prior.browser.pptrBrowser?.disconnect();
+  prior.container.remove();
 }
 let targetActivation = Promise.resolve();
 async function selectTarget() {
@@ -148,7 +191,7 @@ async function selectTarget() {
     .catch(() => {})
     .then(async () => {
       const target = selectedTargetId;
-      if (!browserUI || !target || selected()?.pageClosed) return;
+      if (selectionUnavailable() || !browserUI || !target || selected()?.pageClosed) return;
       const snapshot = browserUI.browser.getTabsSnapshot();
       if (!snapshot?.tabs?.has(target)) return; // SDK discovers targets on reconnect.
       if (snapshot.activeTabId !== target)
@@ -163,18 +206,37 @@ async function refreshSessions() {
     const oldTarget = selectedTargetId;
     sessions = response.sessions || [];
     updateOptions();
-    if (browserUI && selectedTargetId !== oldTarget) await selectTarget();
+    if (selectionUnavailable()) {
+      await disconnectBrowserUI();
+      status.textContent = "Requested Session unavailable";
+    } else if (browserUI && selectedTargetId !== oldTarget) {
+      await selectTarget();
+    }
     if (selected()?.pageClosed) {
       if (leaseSessionId === selectedSessionId) leaseId = null;
       render();
     }
   } catch (error) {
+    if (preferredId !== null) {
+      sessions = [];
+      updateOptions();
+      await disconnectBrowserUI();
+      status.textContent = "Requested Session unavailable";
+    }
     sessionDetails.textContent = "Session list unavailable: " + error.message;
   }
 }
 async function refreshHandoff() {
   try {
     await refreshSessions();
+    if (selectionUnavailable()) {
+      leaseId = null;
+      leaseSessionId = null;
+      leaseTargetId = null;
+      lastHandoff = { phase: "idle" };
+      render();
+      return;
+    }
     lastHandoff = await api(handoffUrl());
     // A lease may expire even while a tab is in the background.
     if (leaseId) {
@@ -204,6 +266,7 @@ async function refreshHandoff() {
   }
 }
 async function toggleControl() {
+  if (selectionUnavailable()) return;
   takeoverButton.disabled = true;
   try {
     if (leaseId) {
@@ -260,28 +323,24 @@ async function connect() {
   try {
     if (!BrowserUI) throw Error("Viewer SDK failed to load.");
     await refreshSessions();
+    if (selectionUnavailable()) {
+      status.textContent = "Requested Session unavailable";
+      return;
+    }
     const state = await api("api/status");
     if (!state.connected) throw Error(state.error || "Chrome CDP unavailable.");
-    if (browserUI) {
-      // Upstream BrowserUI.destroy() invokes BaseBrowser.disconnect() which
-      // destroys all Tabs by closing actual CDP targets. Never call it when
-      // the Chrome profile is shared by several Agent Sessions.
-      const prior = browserUI;
-      browserUI = null;
-      prior.browser.isIntentionalDisconnect = true;
-      await prior.browser.pptrBrowser?.disconnect();
-      prior.container.remove();
-    }
+    if (browserUI) await disconnectBrowserUI();
     const endpoint = resource("cdp");
     endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
     const ui = await BrowserUI.create({
       root: viewer,
       browserOptions: { connect: { browserWSEndpoint: endpoint.href } },
     });
-    if (generation !== connectionGeneration) {
+    if (generation !== connectionGeneration || selectionUnavailable()) {
       ui.browser.isIntentionalDisconnect = true;
       await ui.browser.pptrBrowser?.disconnect();
       ui.container.remove();
+      if (selectionUnavailable()) status.textContent = "Requested Session unavailable";
       return;
     }
     browserUI = ui;
@@ -346,15 +405,25 @@ async function connect() {
 sessionSelector.addEventListener("change", async () => {
   selectedSessionId =
     sessionSelector.value === "legacy" ? null : sessionSelector.value;
-  selectedTargetId = selected()?.targetId || null;
   preferredId = selectedSessionId;
+  selectedTargetId = selectionUnavailable()
+    ? null
+    : selected()?.targetId || null;
   if (selectedSessionId)
     history.replaceState(
       null,
       "",
       location.pathname + "?session=" + encodeURIComponent(selectedSessionId),
     );
-  await selectTarget();
+  if (selectionUnavailable()) {
+    await disconnectBrowserUI();
+    status.textContent = "Requested Session unavailable";
+    render();
+  } else if (browserUI) {
+    await selectTarget();
+  } else {
+    await connect();
+  }
   await refreshHandoff();
 });
 takeoverButton.addEventListener("click", toggleControl);

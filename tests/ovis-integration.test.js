@@ -6,8 +6,13 @@ import { execFileSync } from "node:child_process";
 test("plugin declares both Ovis panel action and portable terminal fallback", () => {
   const manifest = readFileSync(new URL("../herdr-plugin.toml", import.meta.url), "utf8");
   assert.match(manifest, /id = "open-web-panel"/);
+  assert.match(manifest, /id = "open-session-web-panel"/);
   assert.match(manifest, /id = "open-browser-pane"/);
   assert.match(manifest, /\[\[panes\]\][\s\S]*id = "browser"/);
+  assert.match(
+    manifest,
+    /id = "open-session-web-panel"[\s\S]*contexts = \["pane"\][\s\S]*open-panel\.mjs", "--session"/,
+  );
 });
 
 test("Ovis integration scripts have valid syntax", () => {

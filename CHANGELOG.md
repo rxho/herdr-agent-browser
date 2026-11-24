@@ -2,6 +2,13 @@
 
 All notable changes are recorded here. This project remains experimental.
 
+## [0.6.1] - 2026-11-25
+
+### Changed
+- Explicit Viewer `?session=` URLs fail closed when the Session is missing or closed; they no longer fall back to the first Session or legacy mode.
+- Pane-scoped `open-session-web-panel` emits `?session=<id>` only for a unique open Registry binding.
+- Optional Ovis patch no longer injects an Agent Browser More-menu button; it only accepts plugin web-panel URLs, including a single safe `session` query parameter.
+
 ## [0.6.0] - 2026-10-25
 
 ### Added

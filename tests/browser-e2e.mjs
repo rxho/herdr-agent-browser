@@ -64,6 +64,28 @@ try {
     if (message.type() === "error") errors.push(message.text().slice(0, 400));
   });
 
+  await page.goto(`http://127.0.0.1:${port}/?session=missing`, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(
+    () => document.getElementById("status")?.textContent === "Requested Session unavailable",
+    { timeout: 8000 },
+  );
+  const unavailable = await page.evaluate(() => ({
+    hidden: document.getElementById("viewer").hidden,
+    inert: document.getElementById("viewer").inert,
+    childCount: document.getElementById("viewer").childElementCount,
+    target: document.getElementById("viewer").dataset.sessionTargetId,
+    takeoverDisabled: document.getElementById("takeover").disabled,
+    selection: document.getElementById("session-select").value,
+  }));
+  assert.deepEqual(unavailable, {
+    hidden: true,
+    inert: true,
+    childCount: 0,
+    target: "",
+    takeoverDisabled: true,
+    selection: "",
+  });
+
   await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
   try {
     await page.waitForFunction(

@@ -297,6 +297,47 @@ try {
     }),
   });
   assert.equal(conflict.status, 409);
+
+  // An explicit stale deep link must not fall back to A/B or expose their UI.
+  await viewerB.goto(base + "/?session=missing", {
+    waitUntil: "domcontentloaded",
+    timeout: 15000,
+  });
+  await viewerB.waitForFunction(
+    () => document.getElementById("status")?.textContent === "Requested Session unavailable",
+    { polling: 250, timeout: 10000 },
+  );
+  const unavailable = await viewerB.evaluate(() => ({
+    hidden: document.getElementById("viewer").hidden,
+    inert: document.getElementById("viewer").inert,
+    childCount: document.getElementById("viewer").childElementCount,
+    target: document.getElementById("viewer").dataset.sessionTargetId,
+    takeoverDisabled: document.getElementById("takeover").disabled,
+    selection: document.getElementById("session-select").value,
+    options: [...document.getElementById("session-select").options].map((x) => x.value),
+  }));
+  assert.equal(unavailable.hidden, true);
+  assert.equal(unavailable.inert, true);
+  assert.equal(unavailable.childCount, 0);
+  assert.equal(unavailable.target, "");
+  assert.equal(unavailable.takeoverDisabled, true);
+  assert.equal(unavailable.selection, "");
+  assert(unavailable.options.includes("herdr-test-A"));
+  assert(unavailable.options.includes("herdr-test-B"));
+  // An explicit user selection recovers the requested target, not a fallback.
+  await viewerB.select("#session-select", "herdr-test-A");
+  await viewerB.waitForFunction(
+    () =>
+      document.getElementById("status")?.textContent === "Browser connected" &&
+      document.getElementById("viewer").dataset.sessionTargetId !== "" &&
+      document.getElementById("viewer").hidden === false,
+    { polling: 250, timeout: 20000 },
+  );
+  assert.equal(
+    await viewerB.$eval("#viewer", (el) => el.dataset.sessionTargetId),
+    recordA.targetId,
+  );
+
   // B remains completely operable while A is held by the human.
   const fillB2 = await B.callTool({
     name: "agent_browser_fill",

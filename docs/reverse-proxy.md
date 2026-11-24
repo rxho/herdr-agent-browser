@@ -81,6 +81,8 @@ The `open-web-panel` action produces:
 {"ovis_web_panel_url":"https://dev.example.com/browser/"}
 ```
 
+The pane-scoped `open-session-web-panel` action may append `?session=<browserSessionId>` when the invoking pane has a unique open binding. The optional Ovis patch accepts that single selector and still rejects every other query.
+
 Ovis's original Web Panel disallows same-origin URLs. The optional [Ovis integration patch](../integrations/ovis/README.md) uses **full-page navigation** for a public same-origin gateway URL rather than framing it as a same-origin iframe with `allow-scripts` plus `allow-same-origin`. On the shared HTTPS origin, this preserves the gateway's authenticated session and avoids a false claim of iframe security isolation.
 
 Ovis can still embed compatible localhost cross-port viewers in its Web Panel. The upstream Ovis release does **not** automatically install this extension.

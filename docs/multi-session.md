@@ -64,6 +64,10 @@ Do not start multiple Chrome processes with the same `--user-data-dir`.
 
 The Viewer lists Session labels, target URL/title, handoff phase and closed-page state. Selecting a Session activates only its mapped target. Leasing Session A does not enable input to B, and changing the selected Session does not transfer A's lease. Other Agents can continue working in their own Tabs during a cooperative handoff.
 
+An explicit Viewer URL `?session=<browserSessionId>` selects that Session. If the ID is missing, closed or unknown, the Viewer reports that the requested Session is unavailable: it does not activate another Tab, enter legacy mode, or enable Take control. The operator can still pick an available Session from the dropdown.
+
+The pane-scoped `open-session-web-panel` action uses the same mapping: it emits that deep link only when the invoking pane has a unique open Registry entry whose `metadata.paneId` matches `HAB_PANE_ID`. Supply `HAB_CONVERSATION_ID` when one pane can host several Agent runs; otherwise an ambiguous match emits no URL rather than guessing.
+
 Requests, leases, heartbeats, releases, acknowledgment and cancellation are bound to the exact `browserSessionId` and `targetId`. A leased target can have only one Viewer owner. If a target closes, the Session reports `session_page_closed` and the pinned native Agent reports `tab_gone`; neither switches to a neighboring Tab automatically. An expired or lost lease does not mean an Agent may resume.
 
 **OAuth popup and new-window handling is not implemented in this release.** New windows are not automatically adopted by a Session; multi-tab workflows require an explicit future ownership policy. The first version supports one target per Agent Session.

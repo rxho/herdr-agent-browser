@@ -1,5 +1,5 @@
 diff --git a/server/plugin-actions.test.ts b/server/plugin-actions.test.ts
-index 73dcff6..b8c25db 100644
+index 73dcff6af..2dff40533 100644
 --- a/server/plugin-actions.test.ts
 +++ b/server/plugin-actions.test.ts
 @@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
@@ -11,7 +11,7 @@ index 73dcff6..b8c25db 100644
  
  const pane = (fields: Partial<HerdrPane>): HerdrPane => ({ pane_id: "w2:p1", workspace_id: "w2", tab_id: "w2:t1", terminal_id: "term", focused: false, agent_status: "unknown", revision: 0, ...fields });
  const worktree = { repo_key: "/repo/.git", repo_name: "repo", repo_root: "/repo", checkout_path: "/repo-feature", is_linked_worktree: true };
-@@ -130,3 +130,38 @@ describe("pluginLogEntry", () => {
+@@ -130,3 +130,55 @@ describe("pluginLogEntry", () => {
      await expect(pluginLogEntry("plugin-log-6", herdrLog([...newer, late]))).rejects.toMatchObject({ code: "plugin_log_not_found" });
    });
  });
@@ -27,6 +27,23 @@ index 73dcff6..b8c25db 100644
 +  it("accepts an authenticated external HTTPS viewer URL", () => {
 +    expect(pluginWebPanelUrl('{"ovis_web_panel_url":"https://host.example/browser/"}'))
 +      .toBe("https://host.example/browser/");
++  });
++
++  it("accepts only one safe browser Session selector", () => {
++    expect(pluginWebPanelUrl('{"ovis_web_panel_url":"http://127.0.0.1:7931/?session=agent-A_1:local"}'))
++      .toBe("http://127.0.0.1:7931/?session=agent-A_1:local");
++    expect(pluginWebPanelUrl('{"ovis_web_panel_url":"https://host.example/browser/?session=agent-A"}'))
++      .toBe("https://host.example/browser/?session=agent-A");
++    for (const url of [
++      "http://127.0.0.1:7931/?session=",
++      "http://127.0.0.1:7931/?session=legacy",
++      "http://127.0.0.1:7931/?session=bad%2Fid",
++      "http://127.0.0.1:7931/?session=agent-A&session=agent-A",
++      "http://127.0.0.1:7931/?session=agent-A&token=secret",
++      `http://127.0.0.1:7931/?session=${"a".repeat(129)}`,
++    ]) {
++      expect(pluginWebPanelUrl(JSON.stringify({ ovis_web_panel_url: url }))).toBeNull();
++    }
 +  });
 +
 +  it("does not open insecure remote URLs, credentials, fragments, or unsuccessful actions", async () => {
@@ -51,15 +68,16 @@ index 73dcff6..b8c25db 100644
 +  });
 +});
 diff --git a/server/plugin-actions.ts b/server/plugin-actions.ts
-index a16281f..3a00ba4 100644
+index a16281f32..454788b4c 100644
 --- a/server/plugin-actions.ts
 +++ b/server/plugin-actions.ts
-@@ -74,6 +74,27 @@ export function openedPluginPane(stdout: string | null | undefined): string | nu
+@@ -74,6 +74,32 @@ export function openedPluginPane(stdout: string | null | undefined): string | nu
    return opened;
  }
  
 +/** A plugin may return a same-machine browser viewer URL as one standalone JSON line.
 + * Restrict this channel to loopback HTTP(S) addresses; the client applies its own framing policy.
++ * The only query is an optional single Session selector with Agent Browser's safe ID syntax.
 + */
 +export function pluginWebPanelUrl(stdout: string | null | undefined): string | null {
 +  for (const line of (stdout ?? "").split("\n").reverse()) {
@@ -71,7 +89,11 @@ index a16281f..3a00ba4 100644
 +      const url = new URL(candidate);
 +      const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
 +      if (!(url.protocol === "https:" || (url.protocol === "http:" && loopback))) continue;
-+      if (url.username || url.password || url.search || url.hash) continue;
++      if (url.username || url.password || url.hash) continue;
++      const parameters = [...url.searchParams.entries()];
++      if (parameters.some(([key]) => key !== "session") || parameters.length > 1) continue;
++      const session = url.searchParams.get("session");
++      if (session !== null && (session === "legacy" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(session))) continue;
 +      if (!url.pathname.startsWith("/")) continue;
 +      return url.href;
 +    } catch { /* malformed URL */ }
@@ -82,7 +104,7 @@ index a16281f..3a00ba4 100644
  /** The least the pane lookup after a run gets when the run ended right at the wait's deadline. */
  const PANE_LOOKUP_FLOOR_MS = 1_000;
  
-@@ -118,6 +139,8 @@ export function pluginActionResult(log: PluginCommandLog, paneIds: () => Promise
+@@ -118,6 +144,8 @@ export function pluginActionResult(log: PluginCommandLog, paneIds: () => Promise
      exit_code: log.exit_code ?? null,
      output: said === "" ? null : said.slice(-PLUGIN_OUTPUT_CHARS),
      opened_pane_id: null,
@@ -92,7 +114,7 @@ index a16281f..3a00ba4 100644
    const named = log.status === "succeeded" ? openedPluginPane(log.stdout) : null;
    if (named === null) return Promise.resolve(result);
 diff --git a/shared/plugins.ts b/shared/plugins.ts
-index b2a2ae9..fc9e8f0 100644
+index b2a2ae92c..fc9e8f0c0 100644
 --- a/shared/plugins.ts
 +++ b/shared/plugins.ts
 @@ -49,4 +49,6 @@ export interface PluginActionResult {
@@ -103,29 +125,10 @@ index b2a2ae9..fc9e8f0 100644
 +  web_panel_url?: string;
  }
 diff --git a/src/App.tsx b/src/App.tsx
-index 59c3b2c..28369a1 100644
+index 59c3b2c41..763da77f9 100644
 --- a/src/App.tsx
 +++ b/src/App.tsx
-@@ -1,8 +1,8 @@
- import { type CSSProperties, type DragEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
--import { Bell, Ellipsis, FolderOpen, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
-+import { Bell, Ellipsis, FolderOpen, Globe, Link, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
- 
- import type { AgentStatus, ServerMessage, AccessRefusal, HealthAuth, HerdrPane, SessionHistoryAgent } from "../shared/protocol.ts";
--import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, routeMissing, sendTestPush, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
-+import { ApiError, authenticate, createTab, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, fetchPluginActions, runPluginAction, fetchPluginActionStatus, pairDevice, routeMissing, sendTestPush, shareSeen, signOut, splitPane, verifySourceBoot, zoomPane, type HealthInfo } from "./lib/api.ts";
- import { applyHealthRead, healthFreshness, machineHealth, type HealthBook } from "./lib/healthPresentation.ts";
- import { deviceLabel, takePairCode } from "./lib/phone.ts";
- import { alertPaneTitle, displayPaneTitle } from "./components/Sidebar.tsx";
-@@ -30,6 +30,7 @@ import { peekFor, type PeekRequest, type TerminalPeek } from "./lib/terminalPeek
- import { fileFromLink, isNavigation, linkSearch, linksSomewhere, NAV_KEY, readLink, resolveLink, slugOf, type AppLink, type CreateDraft, type LinkNote } from "./lib/deepLink.ts";
- import { copyText } from "./lib/clipboard.ts";
- import { CommandPalette } from "./components/CommandPalette.tsx";
-+import { runPluginActionToEnd } from "./lib/pluginRun.ts";
- import { paletteOpenQuery } from "./lib/paletteSeed.ts";
- import { MachineContext } from "./lib/machineContext.tsx";
- import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
-@@ -476,6 +477,70 @@ export function App() {
+@@ -476,6 +476,29 @@ export function App() {
      setWebPage(url);
      return true;
    }, [settings.webLinks, viewing, fileDocked, closeFile]);
@@ -152,67 +155,10 @@ index 59c3b2c..28369a1 100644
 +    return false;
 +  }, [selectedMachineId, viewing, fileDocked, closeFile]);
 +
-+  const [browserAction, setBrowserAction] = useState<{ pluginId: string; actionId: string; label: string } | null>(null);
-+  const [browserActionError, setBrowserActionError] = useState<string | null>(null);
-+  const [browserActionRunning, setBrowserActionRunning] = useState(false);
-+
-+  useEffect(() => {
-+    if (selectedMachineId !== LOCAL_MACHINE) { setBrowserAction(null); return; }
-+    let active = true;
-+    const refresh = async () => {
-+      try {
-+        const installed = await fetchPluginActions(LOCAL_MACHINE);
-+        if (!active) return;
-+        const item = installed.filter((plugin) => plugin.enabled)
-+          .flatMap((plugin) => plugin.actions.filter((action) => action.action_id === "open-web-panel")
-+            .map((action) => ({ pluginId: plugin.plugin_id, actionId: action.action_id, label: plugin.name })))[0] ?? null;
-+        setBrowserAction(item);
-+      } catch { if (active) setBrowserAction(null); }
-+    };
-+    void refresh();
-+    const poll = window.setInterval(() => void refresh(), 30_000);
-+    return () => { active = false; window.clearInterval(poll); };
-+  }, [selectedMachineId]);
-+
-+  const openInstalledBrowser = async () => {
-+    if (!browserAction || browserActionRunning) return;
-+    setBrowserActionRunning(true);
-+    setBrowserActionError(null);
-+    try {
-+      const result = await runPluginActionToEnd({
-+        runPluginAction: (request) => runPluginAction(request, LOCAL_MACHINE),
-+        fetchPluginActionStatus: (pluginId, logId) => fetchPluginActionStatus(pluginId, logId, LOCAL_MACHINE),
-+      }, { plugin_id: browserAction.pluginId, action_id: browserAction.actionId }, () => true);
-+      if (!result || result.status !== "succeeded" || !result.web_panel_url || !openPluginWebPanel(result.web_panel_url)) {
-+        throw new Error("The browser panel is unavailable from this address. Check the plugin and HTTPS access.");
-+      }
-+    } catch (error) {
-+      setBrowserActionError(error instanceof Error ? error.message : String(error));
-+    } finally {
-+      setBrowserActionRunning(false);
-+    }
-+  };
-+
    // the panel is no dialog, so no trap gives the focus back when it closes: what opened the file
    // (a link in the chat, a row of Files) gets it, as it does from the popup
    useFocusReturn(viewing !== null && fileDocked);
-@@ -1603,6 +1668,7 @@ export function App() {
-   const moreItems: RowMenuItem[] = [
-     // first at every width: a phone's header has no palette button, and a touch screen no shortcut
-     { id: "palette", label: t("Search panes and actions"), icon: Search, ...(paletteKeys ? { hint: paletteKeys } : {}), run: () => openPalette() },
-+    ...(browserAction ? [{ id: "plugin-browser", label: browserAction.label, icon: Globe, run: () => void openInstalledBrowser() }] : []),
-     ...(selectedPane && !selectedPane.restore_error ? [{ id: "find", label: t("Find in terminal"), icon: Search, run: actions.openFind }] : []),
-     // from 769px Files has its own button beside the lens switch; a phone keeps it here
-     ...(selectedPane && !wideScreen ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: () => setFilesOpen(true) }] : []),
-@@ -1790,6 +1856,7 @@ export function App() {
-         <TelemetryNotice enabled={locked === false} onOpen={() => { setSettingsSection("updates"); setSettingsOpen(true); }} />
-         <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
-         {layoutNotice && <p className="pane-notice" role="alert">{layoutNotice}</p>}
-+        {browserActionError && <p className="pane-notice" role="alert">{browserActionError}</p>}
-         {shownHealth?.lan_exposure && <LanExposureNotice host={shownHealth.lan_exposure.host} onOpen={() => { setSettingsLinkPage("devices"); setSettingsOpen(true); }} />}
-         {/* the pane's tab, or two tabs side by side (lib/split.ts): a tab dragged down out of its strip,
-             or a sidebar row dragged over this area, opens its pane in the half it is dropped on */}
-@@ -1946,6 +2013,11 @@ export function App() {
+@@ -1946,6 +1969,11 @@ export function App() {
          </MachineContext.Provider>}
          {webPage !== null && filePanelAvailable && !(viewing !== null && fileDocked) &&
            <WebPanel key={webPage} url={webPage} onClose={() => setWebPage(null)} panelStart={<FilePanelResizer width={filePanelWidth} onResize={setFilePanelWidth} />} />}
@@ -224,7 +170,7 @@ index 59c3b2c..28369a1 100644
        </div>
  
        <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
-@@ -2014,7 +2086,7 @@ export function App() {
+@@ -2014,7 +2042,7 @@ export function App() {
        </MachineContext.Provider>}
        <CommandPalette key={selectedMachineId} machines={machines} onSelect={selectTarget} open={paletteOpen} initialQuery={paletteQuery} onClose={() => setPaletteOpen(false)} snapshot={snapshot} online={selectedMachine?.state === "connected"} selectedPaneId={selectedPaneId}
          // a peek shows the terminal: its toggle says Switch to chat, which ends the peek
@@ -234,7 +180,7 @@ index 59c3b2c..28369a1 100644
    );
  }
 diff --git a/src/components/CommandPalette.tsx b/src/components/CommandPalette.tsx
-index 6df016c..4afeeef 100644
+index 6df016ce5..4afeeef43 100644
 --- a/src/components/CommandPalette.tsx
 +++ b/src/components/CommandPalette.tsx
 @@ -50,6 +50,8 @@ interface CommandPaletteProps {
@@ -271,7 +217,7 @@ index 6df016c..4afeeef 100644
          // the pane may be newer than the snapshot on screen
          actions.refresh();
 diff --git a/src/components/FileViewer.css b/src/components/FileViewer.css
-index f5ca63f..225f8ab 100644
+index f5ca63f02..225f8aba0 100644
 --- a/src/components/FileViewer.css
 +++ b/src/components/FileViewer.css
 @@ -600,3 +600,19 @@

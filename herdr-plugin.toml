@@ -1,6 +1,6 @@
 id = "rxho.agent-browser"
 name = "Agent Browser"
-version = "0.6.0"
+version = "0.6.1"
 min_herdr_version = "0.9.0"
 description = "CDP browser viewer with cooperative human handoff and optional Ovis web-panel integration"
 platforms = ["macos", "linux"]
@@ -40,6 +40,13 @@ title = "Open Agent Browser in Ovis"
 description = "Open the browser viewer using Ovis's web-panel protocol (on supported Ovis builds)"
 contexts = ["global", "workspace", "pane"]
 command = ["bash", "scripts/with-node.sh", "scripts/open-panel.mjs"]
+
+[[actions]]
+id = "open-session-web-panel"
+title = "Open current Session in Agent Browser"
+description = "Open the unique open browser Tab bound to the invoking Herdr pane"
+contexts = ["pane"]
+command = ["bash", "scripts/with-node.sh", "scripts/open-panel.mjs", "--session"]
 
 [[actions]]
 id = "open-browser-pane"

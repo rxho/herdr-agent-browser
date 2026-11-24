@@ -160,7 +160,7 @@ export function createViewerServer({
     if (route === "/api/health" && request.method === "GET") {
       return sendJSON(response, 200, {
         service: "herdr-agent-browser",
-        version: "0.6.0",
+        version: "0.6.1",
         cdpPort: upstream.port,
       });
     }
